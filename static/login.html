@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Login</title>
+<style>
+  :root{
+    --bg:#f7f7f9; --card:#ffffff; --muted:#6b7280; --border:#e5e7eb;
+    --text:#111827; --accent:#2563eb; --accent-weak:#93c5fd; --danger:#b91c1c;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
+  .wrap{min-height:100vh;display:grid;place-items:center;padding:24px}
+  .card{width:100%;max-width:420px;background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 20px rgba(0,0,0,.05);padding:20px}
+  h1{margin:0 0 8px 0;font-size:22px}
+  .muted{color:var(--muted);font-size:14px;margin-bottom:14px}
+  label{display:block;font-size:14px;margin:10px 0 6px}
+  .field{position:relative}
+  input[type="text"],input[type="password"]{
+    width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;outline:none;
+  }
+  input[type="text"]:focus,input[type="password"]:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-weak)}
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .between{display:flex;justify-content:space-between;align-items:center}
+  .actions{margin-top:14px;display:flex;gap:8px;align-items:center}
+  button{border:1px solid var(--border);background:#fff;padding:10px 14px;border-radius:8px;cursor:pointer}
+  .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn-primary[disabled]{opacity:.6;cursor:not-allowed}
+  .link{color:var(--accent);text-decoration:none}
+  .error{color:var(--danger);font-size:14px;min-height:1.2em}
+  .eye{position:absolute;right:10px;top:50%;transform:translateY(-50%);border:none;background:transparent;cursor:pointer;color:var(--muted)}
+  .divider{height:1px;background:var(--border);margin:14px 0}
+  .small{font-size:12px}
+
+  /* ===== Mobile-Optimierung (≤ 640px) ===== */
+@media (max-width: 640px){
+  /* Layout & Abstände */
+  main{ padding:10px }
+  .row{ flex-direction:column; align-items:stretch; gap:10px }
+  .bar{ flex-direction:column; align-items:stretch; gap:8px }
+
+  /* Navigation & Buttons: bessere Touch-Ziele */
+  nav a{ display:inline-block; padding:10px 12px }
+  button{ padding:10px 12px; min-height:44px } /* mind. Apple/Google-Empfehlung */
+
+  /* Formulare: Inputs auf volle Breite */
+  input[type="text"],
+  input[type="date"],
+  input[type="time"],
+  select,
+  textarea{ width:100% }
+
+  /* Tabellen: horizontal scrollen statt umbrechen */
+  table{ display:block; overflow-x:auto; -webkit-overflow-scrolling:touch }
+  thead th, tbody td{ white-space:nowrap }
+
+  /* Kalender: volle Breite & größere Zellen für Touch */
+  #calendar{ width:100% }
+  th, td{ padding:10px 6px }
+  td{ min-width:36px; min-height:44px }  /* besser antippbar */
+  td.markiert{ border-width:2px; border-radius:8px } /* runde Markierung auch auf kleinen Zellen */
+
+  /* Trainer: Optionen schön einspaltig */
+  .choices{ display:grid; grid-template-columns:1fr; gap:8px }
+  .letters{ gap:8px }
+  .slot, .letter{ min-width:36px; padding:8px } /* bessere Trefferfläche */
+
+  /* Fragen-/Kurs-Tabellen: Aktionen umbrechen */
+  .actions button{ margin:4px 2px }
+}
+
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card" role="dialog" aria-labelledby="title" aria-describedby="desc">
+    <h1 id="title">Anmelden</h1>
+    <p class="muted" id="desc">Melde dich mit deinem Benutzerkonto an.</p>
+
+    <form id="login-form" novalidate>
+      <label for="user">Benutzername</label>
+      <div class="field">
+        <input id="user" name="username" type="text" placeholder="z. B. alwin" autocomplete="username" required>
+      </div>
+
+      <label for="pass">Passwort</label>
+      <div class="field">
+        <input id="pass" name="password" type="password" placeholder="••••••••" autocomplete="current-password" required>
+        <button type="button" id="toggle-pass" class="eye" aria-label="Passwort anzeigen/ausblenden">👁️</button>
+      </div>
+
+      <div class="between small" style="margin-top:8px;">
+        <label class="row"><input type="checkbox" id="remember"> Angemeldet bleiben</label>
+        <a class="link" href="#" id="forgot">Passwort vergessen?</a>
+      </div>
+
+      <div class="actions">
+        <button class="btn-primary" id="btn-login" type="submit">Einloggen</button>
+        <span id="status" class="muted" aria-live="polite"></span>
+      </div>
+
+      <div id="error" class="error" role="alert"></div>
+
+      <div class="divider"></div>
+      <div class="small muted">Noch kein Konto? <a class="link" href="#" id="create">Konto anlegen</a></div>
+    </form>
+  </div>
+</div>
+
+<script>
+  // --- UI Helfer ---
+  const $ = (s)=>document.querySelector(s);
+  const form = $("#login-form");
+  const user = $("#user");
+  const pass = $("#pass");
+  const remember = $("#remember");
+  const btn = $("#btn-login");
+  const errorEl = $("#error");
+  const statusEl = $("#status");
+
+  // Passwort anzeigen/ausblenden
+  $("#toggle-pass").addEventListener("click", ()=>{
+    pass.type = pass.type === "password" ? "text" : "password";
+  });
+
+  // Fake-Links (später ersetzen)
+  $("#forgot").addEventListener("click", (e)=>{ e.preventDefault(); alert("Später an den Server anbinden: /password-reset"); });
+  $("#create").addEventListener("click", (e)=>{ e.preventDefault(); alert("Später an den Server anbinden: /register"); });
+
+  // Client-Validierung
+  function validate(){
+    errorEl.textContent = "";
+    const u = user.value.trim();
+    const p = pass.value;
+    if(!u){ errorEl.textContent = "Bitte Benutzernamen eingeben."; return false; }
+    if(!p){ errorEl.textContent = "Bitte Passwort eingeben."; return false; }
+    return true;
+  }
+
+  // Submit → später an echten Server hängen
+  form.addEventListener("submit", async (e)=>{
+    e.preventDefault();
+    if(!validate()) return;
+
+    // UI sperren
+    btn.disabled = true;
+    user.disabled = true;
+    pass.disabled = true;
+    remember.disabled = true;
+    errorEl.textContent = "";
+    statusEl.textContent = "Anmeldung läuft…";
+
+    try {
+      const payload = {
+        username: user.value.trim(),
+        password: pass.value,
+        remember: !!remember.checked
+      };
+
+      // ================================
+      // TODO: Server-Login hier einbauen
+      // Beispiel:
+      // const res = await fetch("/api/login", {
+      //   method: "POST",
+      //   headers: {"Content-Type":"application/json"},
+      //   body: JSON.stringify(payload),
+      //   credentials: "include"
+      // });
+      // if(!res.ok){ throw new Error("Ungültige Anmeldedaten"); }
+      // const data = await res.json(); // ggf. Token/Session
+      // ================================
+
+      // Demo: Erfolg simulieren (ENTFERNEN, wenn Server dran hängt)
+      await new Promise(r=>setTimeout(r, 600));
+
+      // Redirect-Logik: ?redirect=main.html
+      const params = new URLSearchParams(location.search);
+      const target = params.get("redirect") || "main.html";
+      statusEl.textContent = "Erfolgreich – weiterleiten…";
+      location.href = target;
+    } catch (err) {
+      errorEl.textContent = (err && err.message) ? err.message : "Anmeldung fehlgeschlagen.";
+    } finally {
+      btn.disabled = false;
+      user.disabled = false;
+      pass.disabled = false;
+      remember.disabled = false;
+      statusEl.textContent = "";
+      pass.value = "";
+      pass.focus();
+    }
+  });
+
+  // Enter-Handling (optional, da <form> das i. d. R. schon macht)
+  [user, pass].forEach(el=>el.addEventListener("keydown", (e)=>{
+    if(e.key==="Enter"){ form.requestSubmit(); }
+  }));
+</script>
+</body>
+</html>

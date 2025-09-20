@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Kalender</title>
+<style>
+  body{font-family:sans-serif;margin:0}
+  header{border-bottom:1px solid #ccc;padding:8px}
+  nav a{margin-right:8px}
+  main{padding:12px;display:flex;flex-direction:column;gap:12px}
+  #calendar{width:60%;margin:0 auto}
+  #calendar header{display:flex;justify-content:space-between;align-items:center;margin:8px 0}
+  table{width:100%;border-collapse:collapse}
+  th,td{border:1px solid #ddd;padding:8px;text-align:center}
+  td{cursor:pointer}
+  td.markiert{border:2px solid #000;border-radius:50%}
+  td.has-event{text-decoration:underline}
+  .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .muted{color:#555}
+  .error{color:#b91c1c}
+  .right{text-align:right}
+  button{background:transparent;border:1px solid #ccc;padding:6px 10px;cursor:pointer}
+  .btn-danger{border-color:#b91c1c;color:#b91c1c}
+  .list-table td{cursor:default}
+  .list-table td:first-child{width:120px}
+  .actions button{margin:0 2px}
+
+  /* ===== Mobile-Optimierung (≤ 640px) ===== */
+@media (max-width: 640px){
+  /* Layout & Abstände */
+  main{ padding:10px }
+  .row{ flex-direction:column; align-items:stretch; gap:10px }
+  .bar{ flex-direction:column; align-items:stretch; gap:8px }
+
+  /* Navigation & Buttons: bessere Touch-Ziele */
+  nav a{ display:inline-block; padding:10px 12px }
+  button{ padding:10px 12px; min-height:44px } /* mind. Apple/Google-Empfehlung */
+
+  /* Formulare: Inputs auf volle Breite */
+  input[type="text"],
+  input[type="date"],
+  input[type="time"],
+  select,
+  textarea{ width:100% }
+
+  /* Tabellen: horizontal scrollen statt umbrechen */
+  table{ display:block; overflow-x:auto; -webkit-overflow-scrolling:touch }
+  thead th, tbody td{ white-space:nowrap }
+
+  /* Kalender: volle Breite & größere Zellen für Touch */
+  #calendar{ width:100% }
+  th, td{ padding:10px 6px }
+  td{ min-width:36px; min-height:44px }  /* besser antippbar */
+  td.markiert{ border-width:2px; border-radius:8px } /* runde Markierung auch auf kleinen Zellen */
+
+  /* Trainer: Optionen schön einspaltig */
+  .choices{ display:grid; grid-template-columns:1fr; gap:8px }
+  .letters{ gap:8px }
+  .slot, .letter{ min-width:36px; padding:8px } /* bessere Trefferfläche */
+
+  /* Fragen-/Kurs-Tabellen: Aktionen umbrechen */
+  .actions button{ margin:4px 2px }
+}
+
+</style>
+</head>
+<body>
+<header>
+  <nav>
+    <a href="main.html">Main</a>
+    <a href="kalender.html" aria-current="page">Kalender</a>
+    <a href="fahrschulfragen.html">Fahrschulfragen</a>
+    <a href="trainer.html">Trainer</a>
+  </nav>
+</header>
+
+<main>
+  <div id="calendar">
+    <header>
+      <button id="prev">&laquo; Vorheriger</button>
+      <div id="title"></div>
+      <button id="next">Nächster &raquo;</button>
+    </header>
+    <table aria-label="Monatskalender">
+      <thead><tr><th>Mo</th><th>Di</th><th>Mi</th><th>Do</th><th>Fr</th><th>Sa</th><th>So</th></tr></thead>
+      <tbody id="grid"></tbody>
+    </table>
+  </div>
+
+  <div class="row" style="justify-content:space-between;align-items:center">
+    <div class="row">
+      <div id="ausgewaehlt-info" class="muted"></div>
+      <button id="btn-neu">Termin erstellen</button>
+    </div>
+    <div class="muted">Tipp: Klicke auf einen Termin in der Liste, um ihn zu bearbeiten.</div>
+  </div>
+
+  <div id="termine-liste"></div>
+
+  <div id="formular" hidden>
+    <h3 id="form-title">Neuer Termin</h3>
+    <form id="termin-form">
+      <input type="hidden" id="f-id">
+      <div class="row">
+        <label>Start <input type="date" id="f-date-start" required></label>
+        <label>Ende <input type="date" id="f-date-end" required></label>
+        <label>Uhrzeit <input type="time" id="f-zeit" required></label>
+        <label>Titel <input type="text" id="f-titel" required></label>
+      </div>
+      <div class="row" style="align-items:flex-start">
+        <label style="flex:1">Notiz
+          <input type="text" id="f-notiz" placeholder="Optional">
+        </label>
+        <span id="form-error" class="error" hidden></span>
+      </div>
+      <div class="row" style="justify-content:space-between">
+        <div class="row">
+          <button type="submit" id="btn-save">Speichern</button>
+          <button type="button" id="btn-abbrechen">Abbrechen</button>
+        </div>
+        <button type="button" id="btn-delete" class="btn-danger" hidden>Termin löschen</button>
+      </div>
+    </form>
+  </div>
+</main>
+
+<script>
+  // ====== Storage & Utils ======
+  const KEY_EVENTS="termine-v1";
+  const load=(k,d=[])=>{try{const v=JSON.parse(localStorage.getItem(k));return v??d;}catch{return d;}};
+  const save=(k,v)=>localStorage.setItem(k,JSON.stringify(v));
+  const escapeHtml=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const uid=()=>Math.random().toString(36).slice(2)+Date.now().toString(36);
+  const occursOn=(ev,d)=>ev.date===d;
+  const pad=n=>String(n).padStart(2,'0');
+  const fmtLocalDate=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+
+  // Migrate: ensure every event has an id
+  function migrateEventIds(){
+    const evs=load(KEY_EVENTS,[]);
+    let changed=false;
+    evs.forEach(ev=>{ if(!ev.id){ ev.id=uid(); changed=true; }});
+    if(changed) save(KEY_EVENTS, evs);
+  }
+  migrateEventIds();
+
+  // ====== Calendar view state ======
+  const titleEl=document.getElementById('title');
+  const gridEl=document.getElementById('grid');
+  const today=new Date();
+  let viewYear=today.getFullYear(), viewMonth=today.getMonth(), selectedDay=today.getDate();
+
+  document.getElementById('prev').onclick=()=>changeMonth(-1);
+  document.getElementById('next').onclick=()=>changeMonth(1);
+
+  function changeMonth(d){
+    viewMonth+=d;
+    if(viewMonth<0){viewMonth=11;viewYear--;}
+    else if(viewMonth>11){viewMonth=0;viewYear++;}
+    selectedDay=1; render(); renderDayPane();
+  }
+  const daysInMonth=(y,m)=>new Date(y,m+1,0).getDate();
+  const weekdayMondayFirst=js=>(js+6)%7;
+
+  function render(){
+    const months=["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
+    titleEl.textContent=`${months[viewMonth]} ${viewYear}`;
+    gridEl.innerHTML="";
+    const first=new Date(viewYear,viewMonth,1);
+    const startW=weekdayMondayFirst(first.getDay());
+    const dim=daysInMonth(viewYear,viewMonth);
+    const events=load(KEY_EVENTS);
+    let day=1;
+    for(let r=0;r<6;r++){
+      const tr=document.createElement('tr');
+      for(let c=0;c<7;c++){
+        const td=document.createElement('td');
+        const idx=r*7+c;
+        if(idx>=startW && day<=dim){
+          const curr=day;
+          td.textContent=curr;
+          const dateStr=`${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(curr).padStart(2,'0')}`;
+          const isToday=(viewYear===today.getFullYear() && viewMonth===today.getMonth() && curr===today.getDate());
+          if(isToday || curr===selectedDay) td.classList.add('markiert');
+          if(events.some(ev=>occursOn(ev,dateStr))) td.classList.add('has-event');
+          td.onclick=()=>{selectedDay=curr; render(); renderDayPane();};
+          day++;
+        }
+        tr.appendChild(td);
+      }
+      gridEl.appendChild(tr);
+      if(day>dim) break;
+    }
+  }
+
+  // ====== Day pane & list ======
+  const infoEl=document.getElementById('ausgewaehlt-info');
+  const listEl=document.getElementById('termine-liste');
+
+  function selectedDateStr(){
+    return `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(selectedDay).padStart(2,'0')}`;
+  }
+
+  function renderDayPane(){
+    const sel=selectedDateStr();
+    infoEl.textContent=`Ausgewählter Tag: ${sel}`;
+    const items=load(KEY_EVENTS).filter(ev=>occursOn(ev,sel))
+      .sort((a,b)=>(a.time||'').localeCompare(b.time||''));
+    listEl.innerHTML="";
+    if(items.length===0){
+      listEl.innerHTML=`<p class="muted">Keine Termine.</p>`;
+      return;
+    }
+    const t=document.createElement('table');
+    t.className='list-table';
+    t.innerHTML=`<thead><tr><th>Uhrzeit</th><th>Titel</th><th>Aktionen</th></tr></thead><tbody></tbody>`;
+    const tb=t.querySelector('tbody');
+    items.forEach(ev=>{
+      const tr=document.createElement('tr');
+      const time=ev.time||'--:--';
+      tr.innerHTML=`
+        <td>${time}</td>
+        <td style="text-align:left">${escapeHtml(ev.title||'')}</td>
+        <td class="actions">
+          <button data-edit="${ev.id}">Bearbeiten</button>
+          <button data-del="${ev.id}" class="btn-danger">Löschen</button>
+        </td>`;
+      tr.children[1].style.cursor='pointer';
+      tr.children[1].onclick=()=>openEdit(ev.id);
+      tr.querySelector('[data-edit]').onclick=()=>openEdit(ev.id);
+      tr.querySelector('[data-del]').onclick=()=>deleteEvent(ev.id);
+      tb.appendChild(tr);
+    });
+    listEl.appendChild(t);
+  }
+
+  // ====== Form (create/edit) ======
+  const formWrap=document.getElementById('formular');
+  const form=document.getElementById('termin-form');
+  const formTitle=document.getElementById('form-title');
+  const fId=document.getElementById('f-id');
+  const fStart=document.getElementById('f-date-start');
+  const fEnd=document.getElementById('f-date-end');
+  const fZeit=document.getElementById('f-zeit');
+  const fTitel=document.getElementById('f-titel');
+  const fNotiz=document.getElementById('f-notiz');
+  const formErr=document.getElementById('form-error');
+  const btnNeu=document.getElementById('btn-neu');
+  const btnAbbr=document.getElementById('btn-abbrechen');
+  const btnDelete=document.getElementById('btn-delete');
+
+  let initialFormState=null;
+  const snapshot=()=>({id:fId.value||"",s:fStart.value||"",e:fEnd.value||"",t:fZeit.value||"",ti:fTitel.value||"",n:fNotiz.value||""});
+  const dirty=()=>{if(!initialFormState)return false;const n=snapshot(),i=initialFormState;return n.id!==i.id||n.s!==i.s||n.e!==i.e||n.t!==i.t||n.ti!==i.ti||n.n!==i.n;};
+  const resetForm=()=>{form.reset();formErr.hidden=true;formErr.textContent="";initialFormState=null;fId.value="";btnDelete.hidden=true;formTitle.textContent="Neuer Termin";};
+
+  btnNeu.onclick=()=>openCreate();
+
+  document.addEventListener('keydown',e=>{ if(!formWrap.hidden && e.key==='Escape'){e.preventDefault();btnAbbr.click();}});
+
+  btnAbbr.onclick=()=>{
+    if(dirty() && !confirm("Eingaben verwerfen?")) return;
+    resetForm(); formWrap.hidden=true;
+  };
+
+  function openCreate(){
+    formWrap.hidden=false; formErr.hidden=true; formErr.textContent="";
+    const sel=selectedDateStr();
+    fId.value="";
+    fStart.value=sel; fEnd.value=sel; fZeit.value="09:00"; fTitel.value=""; fNotiz.value="";
+    btnDelete.hidden=true;
+    formTitle.textContent="Neuer Termin";
+    initialFormState=snapshot();
+  }
+
+  function openEdit(id){
+    const evs=load(KEY_EVENTS);
+    const ev=evs.find(e=>e.id===id);
+    if(!ev) return;
+    formWrap.hidden=false; formErr.hidden=true; formErr.textContent="";
+    fId.value=ev.id;
+    fStart.value=ev.date;
+    fEnd.value=ev.date; // Beim Bearbeiten nutzen wir ein Einzeldatum
+    fZeit.value=ev.time||"09:00";
+    fTitel.value=ev.title||"";
+    fNotiz.value=ev.note||"";
+    btnDelete.hidden=false;
+    formTitle.textContent="Termin bearbeiten";
+    initialFormState=snapshot();
+  }
+
+  function deleteEvent(id){
+    if(!confirm("Diesen Termin wirklich löschen?")) return;
+    const evs=load(KEY_EVENTS);
+    const idx=evs.findIndex(e=>e.id===id);
+    if(idx>=0){
+      evs.splice(idx,1);
+      save(KEY_EVENTS, evs);
+      render(); renderDayPane();
+      if(fId.value===id){ resetForm(); formWrap.hidden=true; }
+    }
+  }
+  btnDelete.onclick=()=>{ if(fId.value) deleteEvent(fId.value); };
+
+  form.onsubmit=(e)=>{
+    e.preventDefault();
+    formErr.hidden=true; formErr.textContent="";
+    const s=fStart.value, eD=fEnd.value, id=fId.value.trim();
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(s)||!/^\d{4}-\d{2}-\d{2}$/.test(eD)){formErr.textContent="Bitte Datum YYYY-MM-DD.";formErr.hidden=false;return;}
+    if(eD<s && !id){formErr.textContent="Ende darf nicht vor Start liegen.";formErr.hidden=false;return;}
+    const t=fZeit.value, ti=fTitel.value.trim(), n=fNotiz.value.trim();
+    if(!ti){formErr.textContent="Titel darf nicht leer sein.";formErr.hidden=false;return;}
+
+    const evs=load(KEY_EVENTS);
+
+    if(id){
+      // Bearbeiten eines Einzelttermins
+      const i=evs.findIndex(x=>x.id===id);
+      if(i>=0){
+        evs[i]={...evs[i], date:s, time:t, title:ti, note:n};
+        save(KEY_EVENTS, evs);
+      }
+    }else{
+      // Neu: Bereich erzeugen – lokale Datumsstrings verwenden
+      const sD=new Date(s+"T00:00:00");
+      const eDate=new Date(eD+"T00:00:00");
+      let guard=0;
+      for(let d=new Date(sD); d<=eDate; d.setDate(d.getDate()+1)){
+        evs.push({id:uid(), date:fmtLocalDate(d), time:t, title:ti, note:n});
+        if(++guard>366) break;
+      }
+      save(KEY_EVENTS, evs);
+    }
+
+    resetForm(); formWrap.hidden=true; render(); renderDayPane();
+  };
+
+  // ====== Init ======
+  render(); renderDayPane();
+</script>
+</body>
+</html>

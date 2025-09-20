@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Main</title>
+<style>
+  body{font-family:sans-serif;margin:0}
+  header{border-bottom:1px solid #ccc;padding:8px}
+  nav a{margin-right:8px}
+  main{padding:12px;display:grid;gap:16px}
+  table{width:100%;border-collapse:collapse}
+  th,td{border:1px solid #ccc;padding:6px;text-align:left}
+  thead th{background:#f6f6f6}
+  .muted{color:#555}
+  .right{text-align:right}
+  button{background:transparent;border:1px solid #ccc;padding:6px 10px;cursor:pointer}
+  .bar{display:flex;justify-content:space-between;align-items:center}
+
+  /* ===== Mobile-Optimierung (≤ 640px) ===== */
+@media (max-width: 640px){
+  /* Layout & Abstände */
+  main{ padding:10px }
+  .row{ flex-direction:column; align-items:stretch; gap:10px }
+  .bar{ flex-direction:column; align-items:stretch; gap:8px }
+
+  /* Navigation & Buttons: bessere Touch-Ziele */
+  nav a{ display:inline-block; padding:10px 12px }
+  button{ padding:10px 12px; min-height:44px } /* mind. Apple/Google-Empfehlung */
+
+  /* Formulare: Inputs auf volle Breite */
+  input[type="text"],
+  input[type="date"],
+  input[type="time"],
+  select,
+  textarea{ width:100% }
+
+  /* Tabellen: horizontal scrollen statt umbrechen */
+  table{ display:block; overflow-x:auto; -webkit-overflow-scrolling:touch }
+  thead th, tbody td{ white-space:nowrap }
+
+  /* Kalender: volle Breite & größere Zellen für Touch */
+  #calendar{ width:100% }
+  th, td{ padding:10px 6px }
+  td{ min-width:36px; min-height:44px }  /* besser antippbar */
+  td.markiert{ border-width:2px; border-radius:8px } /* runde Markierung auch auf kleinen Zellen */
+
+  /* Trainer: Optionen schön einspaltig */
+  .choices{ display:grid; grid-template-columns:1fr; gap:8px }
+  .letters{ gap:8px }
+  .slot, .letter{ min-width:36px; padding:8px } /* bessere Trefferfläche */
+
+  /* Fragen-/Kurs-Tabellen: Aktionen umbrechen */
+  .actions button{ margin:4px 2px }
+}
+
+</style>
+</head>
+<body>
+<header>
+  <nav>
+    <a href="main.html" aria-current="page">Main</a>
+    <a href="kalender.html">Kalender</a>
+    <a href="fahrschulfragen.html">Fahrschulfragen</a>
+    <a href="trainer.html">Trainer</a>
+  </nav>
+</header>
+
+<main>
+  <section>
+    <div class="bar">
+      <h2 style="margin:0">Überblick</h2>
+      <button id="btn-refresh" title="Daten neu laden">Aktualisieren</button>
+    </div>
+    <div id="stats" class="muted">Lade…</div>
+  </section>
+
+  <section>
+    <h3>Nächste Termine (7 Tage)</h3>
+    <table>
+      <thead><tr><th>Datum</th><th>Uhrzeit</th><th>Titel</th></tr></thead>
+      <tbody id="next-events"></tbody>
+    </table>
+    <div class="right"><a href="kalender.html"><button>Zum Kalender</button></a></div>
+  </section>
+
+  <section>
+    <h3>Kurse (Zusammenfassung)</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Kurs</th>
+          <th>#Themen</th>
+          <th>Fragen gesamt</th>
+          <th>Aktionen</th>
+        </tr>
+      </thead>
+      <tbody id="courses"></tbody>
+    </table>
+  </section>
+</main>
+
+<ul id="event-list"></ul>
+
+<script type="module">
+  import { createClient } from 'https://esm.sh/@supabase/supabase-js'
+
+  // Deine Supabase-Daten
+  const supabaseUrl = 'https://pavjjpkgujewaqhkbeph.supabase.co'
+  const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBhdmpqcGtndWpld2FxaGtiZXBoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgxODU2MjcsImV4cCI6MjA3Mzc2MTYyN30.ups-LuXw0meJ_7oqTLB6zjKF3KWPFq7DdDIYcB9nt6U'
+  const supabase = createClient(supabaseUrl, supabaseKey)
+
+  // Termine laden
+  async function loadEvents() {
+    const { data, error } = await supabase
+      .from('events')
+      .select('*')
+      .order('event_date', { ascending: true })
+
+    if (error) {
+      console.error('Fehler beim Laden:', error)
+    } else {
+      const list = document.getElementById('event-list')
+      list.innerHTML = ''
+      data.forEach(ev => {
+        const li = document.createElement('li')
+        li.textContent = `${ev.event_date} – ${ev.title} (${ev.notes || ''})`
+        list.appendChild(li)
+      })
+    }
+  }
+
+  loadEvents()
+</script>
+
+
+<script>
+  // ===== Keys & Utils (kompatibel mit kalender.html / fahrschulfragen.html) =====
+  const KEY_EVENTS="termine-v1", KEY_KURSE="kurse-v1", KEY_THEMEN="themen-v1", KEY_FRAGEN="fragen-v1";
+
+  const load=(k,d=[])=>{ try{ const v=JSON.parse(localStorage.getItem(k)); return v ?? d; } catch { return d; } };
+  const save=(k,v)=>localStorage.setItem(k, JSON.stringify(v));
+  const escapeHtml=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const pad=n=>String(n).padStart(2,'0');
+
+  // "YYYY-MM-DD" -> Date (lokal, 00:00)
+  const toLocalDate=(ymd)=>{
+    const [Y,M,D]=(ymd||"").split("-").map(Number);
+    if(!Y||!M||!D) return null;
+    return new Date(Y, M-1, D);
+  };
+  // Date -> "YYYY-MM-DD" (lokal)
+  const fmtLocalDate=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+
+  // ===== Daten-Normalisierung (repariert alte ISO-Datumswerte etc.) =====
+  function normalizeEvents(){
+    const evs=load(KEY_EVENTS, []);
+    if(!Array.isArray(evs) || evs.length===0) return;
+    let changed=false;
+    evs.forEach(ev=>{
+      if(!ev || !ev.date) return;
+      // ISO-Strings wie "2025-09-18T00:00:00.000Z" -> nur Datum
+      if(/^\d{4}-\d{2}-\d{2}T/.test(ev.date)){
+        ev.date = ev.date.slice(0,10);
+        changed=true;
+      }else if(!/^\d{4}-\d{2}-\d{2}$/.test(ev.date)){
+        // Versuch: beliebiges Datum nach lokalem Y-M-D normalisieren
+        const d=new Date(ev.date);
+        if(!isNaN(d)){
+          ev.date = fmtLocalDate(d);
+          changed=true;
+        }
+      }
+    });
+    if(changed) save(KEY_EVENTS, evs);
+  }
+
+  // ===== Rendering =====
+  const statsEl  = document.getElementById('stats');
+  const tbNext   = document.getElementById('next-events');
+  const tbCourses= document.getElementById('courses');
+
+  function renderStats(){
+    const events=Array.isArray(load(KEY_EVENTS)) ? load(KEY_EVENTS) : [];
+    const kurse =Array.isArray(load(KEY_KURSE))  ? load(KEY_KURSE)  : [];
+    const themen=Array.isArray(load(KEY_THEMEN)) ? load(KEY_THEMEN) : [];
+    const fragen=Array.isArray(load(KEY_FRAGEN)) ? load(KEY_FRAGEN) : [];
+    statsEl.textContent = `Termine: ${events.length} • Kurse: ${kurse.length} • Themen: ${themen.length} • Fahrschulfragen: ${fragen.length}`;
+  }
+
+  function renderNext7Days(){
+    tbNext.innerHTML="";
+    const events=Array.isArray(load(KEY_EVENTS)) ? load(KEY_EVENTS) : [];
+
+    if(events.length===0){
+      tbNext.innerHTML = `<tr><td colspan="3" class="muted">Keine Termine in den nächsten 7 Tagen.</td></tr>`;
+      return;
+    }
+
+    const now=new Date();
+    const today0=new Date(now.getFullYear(), now.getMonth(), now.getDate()); // lokal 00:00
+    const in7 = new Date(today0); in7.setDate(in7.getDate()+7);
+
+    const upcoming = events
+      .map(ev=>{
+        const d = toLocalDate(ev.date);
+        return d ? { ...ev, _d:d } : null;
+      })
+      .filter(Boolean)
+      .filter(ev=> ev._d >= today0 && ev._d <= in7)
+      .sort((a,b)=>{
+        const da=a._d-b._d; if(da!==0) return da;
+        return (a.time||'').localeCompare(b.time||'');
+      });
+
+    if(upcoming.length===0){
+      tbNext.innerHTML = `<tr><td colspan="3" class="muted">Keine Termine in den nächsten 7 Tagen.</td></tr>`;
+      return;
+    }
+
+    upcoming.slice(0,50).forEach(ev=>{
+      const y=ev._d.getFullYear(), m=pad(ev._d.getMonth()+1), d=pad(ev._d.getDate());
+      const tr=document.createElement('tr');
+      tr.innerHTML = `
+        <td>${y}-${m}-${d}</td>
+        <td>${ev.time || '--:--'}</td>
+        <td>${escapeHtml(ev.title || '')}</td>`;
+      tbNext.appendChild(tr);
+    });
+  }
+
+  function renderCourses(){
+    tbCourses.innerHTML="";
+    const kurse  = Array.isArray(load(KEY_KURSE))  ? load(KEY_KURSE)  : [];
+    const themen = Array.isArray(load(KEY_THEMEN)) ? load(KEY_THEMEN) : [];
+    const fragen = Array.isArray(load(KEY_FRAGEN)) ? load(KEY_FRAGEN) : [];
+
+    if(kurse.length===0){
+      tbCourses.innerHTML = `<tr><td colspan="4" class="muted">Noch keine Kurse angelegt.</td></tr>`;
+      return;
+    }
+
+    // Map Topic -> Course für robustes Zählen, falls Fragen nur topicId haben
+    const topicToCourse = new Map(themen.map(t=>[t.id, t.courseId]));
+
+    kurse.forEach(k=>{
+      const tList = themen.filter(t=>t.courseId===k.id);
+      const topicIds = new Set(tList.map(t=>t.id));
+      const fList = fragen.filter(f=>{
+        // Fragen gelten als zum Kurs gehörig, wenn courseId passt ODER ihr topicId zu einem Thema des Kurses gehört
+        if(f.courseId && f.courseId===k.id) return true;
+        if(f.topicId && topicIds.has(f.topicId)) return true;
+        // Fallback: wenn nur topicId existiert, aber der Kurs über topic->course zuordenbar ist
+        if(f.topicId && topicToCourse.get(f.topicId)===k.id) return true;
+        return false;
+      });
+
+      const tr=document.createElement('tr');
+      tr.innerHTML = `
+        <td>${escapeHtml(k.name)}</td>
+        <td>${tList.length}</td>
+        <td>${fList.length}</td>
+        <td>
+          <a href="fahrschulfragen.html"><button>Bearbeiten</button></a>
+          <a href="trainer.html?course=${encodeURIComponent(k.id)}&all=1"><button>Trainieren</button></a>
+        </td>`;
+      tbCourses.appendChild(tr);
+    });
+  }
+
+  function renderAll(){
+    normalizeEvents();      // einmal reparieren, falls nötig
+    renderStats();
+    renderNext7Days();
+    renderCourses();
+  }
+
+  // Initial laden
+  renderAll();
+
+  // Manuelles Aktualisieren
+  document.getElementById('btn-refresh').onclick=renderAll;
+
+  // Auto-Refresh, wenn in einem anderen Tab/Fenster Daten geändert werden
+  window.addEventListener('storage', (e)=>{
+    if([KEY_EVENTS,KEY_KURSE,KEY_THEMEN,KEY_FRAGEN].includes(e.key)){
+      renderAll();
+    }
+  });
+</script>
+</body>
+</html>
