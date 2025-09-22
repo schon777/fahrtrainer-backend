@@ -1,3 +1,4 @@
+import json
 import os
 from flask import Flask, send_from_directory, jsonify, request
 from flask_cors import CORS
@@ -155,3 +156,72 @@ def serve(path):
 # ---------- Local run ----------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 3000)))
+
+# --- KV (Key/Value) – eine Tabelle für beliebige Seitendaten ---
+def init_kv():
+    if not engine:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS kv_items (
+              id BIGSERIAL PRIMARY KEY,
+              page TEXT NOT NULL,
+              k    TEXT NOT NULL,
+              v    JSONB NOT NULL,
+              created_at TIMESTAMPTZ DEFAULT NOW(),
+              updated_at TIMESTAMPTZ DEFAULT NOW(),
+              UNIQUE(page, k)
+            )
+        """))
+init_kv()
+
+from flask import request
+
+@app.get("/api/kv")
+def kv_list():
+    if not engine:
+        return {"error":"DB not ready"}, 500
+    page = request.args.get("page")
+    if not page:
+        return {"error":"missing ?page="}, 400
+    with engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT id, page, k, v, created_at, updated_at
+            FROM kv_items
+            WHERE page = :page
+            ORDER BY updated_at DESC, created_at DESC
+        """), {"page": page}).mappings().all()
+    out=[]
+    for r in rows:
+        d=dict(r); d["created_at"]=d["created_at"].isoformat(); d["updated_at"]=d["updated_at"].isoformat()
+        out.append(d)
+    return {"items": out}
+
+@app.post("/api/kv")
+def kv_upsert():
+    if not engine:
+        return {"error":"DB not ready"}, 500
+    data = request.get_json(force=True) or {}
+    page = (data.get("page") or "").strip()
+    key  = (data.get("key")  or "").strip()
+    val  = data.get("value")
+    if not page or not key:
+        return {"error":"page and key required"}, 400
+    with engine.begin() as conn:
+        row = conn.execute(text("""
+            INSERT INTO kv_items (page, k, v)
+            VALUES (:page, :k, to_jsonb(:v::json))
+            ON CONFLICT (page, k)
+            DO UPDATE SET v = EXCLUDED.v, updated_at = NOW()
+            RETURNING id, page, k, v, created_at, updated_at
+        """), {"page": page, "k": key, "v": json.dumps(val) if not isinstance(val,(dict,list)) else json.dumps(val)}).mappings().one()
+    r=dict(row); r["created_at"]=r["created_at"].isoformat(); r["updated_at"]=r["updated_at"].isoformat()
+    return r, 201
+
+@app.delete("/api/kv/<int:item_id>")
+def kv_delete(item_id):
+    if not engine:
+        return {"error":"DB not ready"}, 500
+    with engine.begin() as conn:
+        row = conn.execute(text("DELETE FROM kv_items WHERE id=:id RETURNING id"), {"id": item_id}).first()
+    return ({"deleted": row[0]}, 200) if row else ({"error":"not found"}, 404)
