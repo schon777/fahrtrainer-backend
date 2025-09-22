@@ -16,7 +16,6 @@ engine = create_engine(db_url, pool_pre_ping=True) if db_url else None
 def init_db():
     if not engine:
         return
-    # Tabelle für Beispiel-Daten
     with engine.begin() as conn:
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS fahrten (
@@ -46,10 +45,10 @@ def get_time():
 @app.post("/api/fahrten")
 def create_fahrt():
     if not engine:
-        return {"error": "DATABASE_URL not set"}, 500
+        return {"error": "DB not ready"}, 500
     data = request.get_json(force=True) or {}
     start = (data.get("start") or "").strip()
-    ziel  = (data.get("ziel") or "").strip()
+    ziel  = (data.get("ziel")  or "").strip()
     dauer = data.get("dauer_minutes")
     if not start or not ziel:
         return {"error": "start und ziel sind Pflicht"}, 400
@@ -60,12 +59,13 @@ def create_fahrt():
                     RETURNING id, created_at, start, ziel, dauer_minutes"""),
             {"start": start, "ziel": ziel, "dauer": dauer}
         ).mappings().one()
-    return dict(row), 201
+    row = dict(row); row["created_at"] = row["created_at"].isoformat()
+    return row, 201
 
 @app.get("/api/fahrten")
 def list_fahrten():
     if not engine:
-        return {"error": "DATABASE_URL not set"}, 500
+        return {"error": "DB not ready"}, 500
     with engine.connect() as conn:
         rows = conn.execute(
             text("""SELECT id, created_at, start, ziel, dauer_minutes
@@ -73,9 +73,60 @@ def list_fahrten():
                     ORDER BY created_at DESC
                     LIMIT 100""")
         ).mappings().all()
-    return {"items": [dict(r) for r in rows]}
+    items = []
+    for r in rows:
+        d = dict(r); d["created_at"] = d["created_at"].isoformat()
+        items.append(d)
+    return {"items": items}
 
-# --- Static (optional, falls du dort ein Frontend ablegst) ---
+@app.get("/api/fahrten/<int:id>")
+def get_fahrt(id):
+    if not engine:
+        return {"error": "DB not ready"}, 500
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("""SELECT id, created_at, start, ziel, dauer_minutes
+                    FROM fahrten WHERE id=:id"""),
+            {"id": id}
+        ).mappings().first()
+    if not row:
+        return {"error": "not found"}, 404
+    row = dict(row); row["created_at"] = row["created_at"].isoformat()
+    return row
+
+@app.put("/api/fahrten/<int:id>")
+def update_fahrt(id):
+    if not engine:
+        return {"error": "DB not ready"}, 500
+    data = request.get_json(force=True) or {}
+    with engine.begin() as conn:
+        row = conn.execute(text("""
+            UPDATE fahrten
+            SET start = COALESCE(:start, start),
+                ziel  = COALESCE(:ziel,  ziel),
+                dauer_minutes = COALESCE(:dauer, dauer_minutes)
+            WHERE id = :id
+            RETURNING id, created_at, start, ziel, dauer_minutes
+        """), {
+            "id": id,
+            "start": (data.get("start").strip() if data.get("start") else None),
+            "ziel":  (data.get("ziel").strip()  if data.get("ziel")  else None),
+            "dauer": data.get("dauer_minutes")
+        }).mappings().first()
+    if not row:
+        return {"error": "not found"}, 404
+    row = dict(row); row["created_at"] = row["created_at"].isoformat()
+    return row
+
+@app.delete("/api/fahrten/<int:id>")
+def delete_fahrt(id):
+    if not engine:
+        return {"error": "DB not ready"}, 500
+    with engine.begin() as conn:
+        row = conn.execute(text("DELETE FROM fahrten WHERE id=:id RETURNING id"), {"id": id}).first()
+    return ({"deleted": row[0]}, 200) if row else ({"error": "not found"}, 404)
+
+# --- Static ---
 @app.route("/")
 def root():
     return send_from_directory("static", "index.html")

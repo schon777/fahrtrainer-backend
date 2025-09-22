@@ -1,18 +1,145 @@
 <!doctype html>
 <html lang="de">
 <head>
-  <meta charset="utf-8">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Fahrtrainer</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 24px; max-width: 900px }
+    h1 { margin: 0 0 12px 0 }
+    .card { padding: 16px; border: 1px solid #ddd; border-radius: 12px; margin: 12px 0 }
+    form input, form button { padding: 10px; margin-right: 8px; margin-bottom: 8px }
+    ul { padding-left: 18px }
+    .ok { color: #2e7d32 } .bad { color: #c62828 }
+    button { cursor: pointer }
+    li { margin: 6px 0 }
+    .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+  </style>
 </head>
 <body>
   <h1>Fahrtrainer</h1>
-  <p>Willkommen! Wähle eine Seite:</p>
-  <ul>
-    <li><a href="main.html">Main</a></li>
-    <li><a href="kalender.html">Kalender</a></li>
-    <li><a href="fahrschulfragen.html">Fahrschulfragen</a></li>
-    <li><a href="trainer.html">Trainer</a></li>
-    <li><a href="login.html">Login</a></li>
-  </ul>
+
+  <div class="card" id="status">
+    <strong>Status:</strong>
+    <div>Backend: <span id="ping">prüfe…</span></div>
+    <div>DB: <span id="db">prüfe…</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Neue Fahrt speichern</h2>
+    <form id="form" class="row">
+      <input id="start" placeholder="Start" required />
+      <input id="ziel"  placeholder="Ziel" required />
+      <input id="dauer" placeholder="Dauer (min)" type="number" min="0" />
+      <button>Speichern</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Letzte Fahrten</h2>
+    <ul id="list"></ul>
+  </div>
+
+  <script>
+    // Backend-URL:
+    const API = "https://fahrtrainer-backend.onrender.com";
+
+    const el = sel => document.querySelector(sel);
+
+    async function health() {
+      try {
+        const r = await fetch(`${API}/api/ping`);
+        el("#ping").textContent = r.ok ? "OK" : "Fehler";
+        el("#ping").className = r.ok ? "ok" : "bad";
+      } catch { el("#ping").textContent = "Fehler"; el("#ping").className = "bad"; }
+
+      try {
+        const r = await fetch(`${API}/api/time`);
+        el("#db").textContent = r.ok ? "OK" : "Fehler";
+        el("#db").className = r.ok ? "ok" : "bad";
+      } catch { el("#db").textContent = "Fehler"; el("#db").className = "bad"; }
+    }
+
+    function render(items){
+      const list = el("#list");
+      if(!items.length){ list.innerHTML = "<li>Noch keine Einträge.</li>"; return; }
+
+      list.innerHTML = items.map(x => `
+        <li data-id="${x.id}" data-start="${encodeURIComponent(x.start)}"
+            data-ziel="${encodeURIComponent(x.ziel)}"
+            data-dauer="${x.dauer_minutes ?? ''}">
+          <span>#${x.id} ${escapeHtml(x.start)} → ${escapeHtml(x.ziel)}
+            (${x.dauer_minutes ?? "-"} min) – ${new Date(x.created_at).toLocaleString()}</span>
+          <button class="edit">Bearbeiten</button>
+          <button class="del">Löschen</button>
+        </li>`).join("");
+    }
+
+    function escapeHtml(s){ return (s??"").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+    async function load(){
+      const res = await fetch(`${API}/api/fahrten`);
+      if(!res.ok){ el("#list").innerHTML = "<li class='bad'>Fehler beim Laden.</li>"; return; }
+      const data = await res.json();
+      render(data.items || []);
+    }
+
+    async function addFahrt(e){
+      e.preventDefault();
+      const start = el("#start").value.trim();
+      const ziel  = el("#ziel").value.trim();
+      const dauer = el("#dauer").value ? parseInt(el("#dauer").value, 10) : null;
+
+      const r = await fetch(`${API}/api/fahrten`, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ start, ziel, dauer_minutes: dauer })
+      });
+      if(!r.ok){ alert("Fehler beim Speichern"); return; }
+      el("#form").reset();
+      load();
+    }
+
+    // Event-Delegation für Edit/Delete
+    el("#list").addEventListener("click", async (e)=>{
+      const li = e.target.closest("li[data-id]");
+      if(!li) return;
+      const id = li.dataset.id;
+
+      if(e.target.classList.contains("del")){
+        if(!confirm(`Fahrt #${id} löschen?`)) return;
+        const r = await fetch(`${API}/api/fahrten/${id}`, { method: "DELETE" });
+        if(!r.ok){ alert("Löschen fehlgeschlagen"); return; }
+        load();
+      }
+
+      if(e.target.classList.contains("edit")){
+        const curStart = decodeURIComponent(li.dataset.start);
+        const curZiel  = decodeURIComponent(li.dataset.ziel);
+        const curDauer = li.dataset.dauer || "";
+        const nStart = prompt("Neuer Start:", curStart); if(nStart===null) return;
+        const nZiel  = prompt("Neues Ziel:",  curZiel);  if(nZiel===null)  return;
+        const nDauer = prompt("Neue Dauer (min, leer=unverändert):", curDauer);
+        const payload = {
+          start: nStart.trim(),
+          ziel:  nZiel.trim(),
+          dauer_minutes: nDauer === "" ? null : parseInt(nDauer,10)
+        };
+        const r = await fetch(`${API}/api/fahrten/${id}`, {
+          method:"PUT",
+          headers:{ "Content-Type":"application/json" },
+          body: JSON.stringify(payload)
+        });
+        if(!r.ok){ alert("Ändern fehlgeschlagen"); return; }
+        load();
+      }
+    });
+
+    window.addEventListener("DOMContentLoaded", () => {
+      el("#form").addEventListener("submit", addFahrt);
+      health();
+      load();
+    });
+  </script>
 </body>
 </html>
