@@ -3,6 +3,15 @@ from flask import Flask, send_from_directory, jsonify, request
 from flask_cors import CORS
 from sqlalchemy import create_engine, text
 
+@app.get("/api/debug/db")
+def db_debug():
+    if not engine:
+        return {"engine": None}, 500
+    with engine.connect() as conn:
+        db, host = conn.execute(text("select current_database(), inet_server_addr()::text")).one()
+    return {"db": db, "host": host}
+
+
 # --- Flask ---
 app = Flask(__name__, static_folder="static", static_url_path="")
 CORS(app, resources={r"/*": {"origins": os.getenv("ALLOWED_ORIGINS", "*").split(",")}})
