@@ -4,18 +4,17 @@ from flask_cors import CORS
 from sqlalchemy import create_engine, text
 
 # ---------- Flask ----------
-app = Flask(__name__, static_folder="static", static_url_path="")
+# WICHTIG: static_url_path="/static", damit /api/* nicht mit Static kollidiert
+app = Flask(__name__, static_folder="static", static_url_path="/static")
 CORS(app, resources={r"/*": {"origins": os.getenv("ALLOWED_ORIGINS", "*").split(",")}})
 
 # ---------- DB ----------
 db_url = os.getenv("DATABASE_URL", "")
 if db_url and db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
-
 engine = create_engine(db_url, pool_pre_ping=True) if db_url else None
 
 def init_db():
-    """legt Tabelle 'fahrten' an, falls nicht vorhanden"""
     if not engine:
         return
     with engine.begin() as conn:
@@ -48,9 +47,7 @@ def db_debug():
     if not engine:
         return {"engine": None}, 500
     with engine.connect() as conn:
-        db, host = conn.execute(text(
-            "select current_database(), inet_server_addr()::text"
-        )).one()
+        db, host = conn.execute(text("select current_database(), inet_server_addr()::text")).one()
     return {"db": db, "host": host}
 
 # ---------- Daten-API (CRUD) ----------
@@ -133,16 +130,14 @@ def delete_fahrt(id):
     if not engine:
         return {"error": "DB not ready"}, 500
     with engine.begin() as conn:
-        row = conn.execute(text(
-            "DELETE FROM fahrten WHERE id=:id RETURNING id"
-        ), {"id": id}).first()
+        row = conn.execute(text("DELETE FROM fahrten WHERE id=:id RETURNING id"), {"id": id}).first()
     return ({"deleted": row[0]}, 200) if row else ({"error": "not found"}, 404)
 
-# ---------- Static: Catch-All (fix für 404 auf /) ----------
+# ---------- Static: Catch-All ----------
+# / -> index.html, /index.html -> index.html, /assets/* -> echte Datei
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve(path):
-    # vorhandene Datei im static/ ausliefern, sonst index.html
     full = os.path.join(app.static_folder, path)
     if path and os.path.exists(full):
         return send_from_directory(app.static_folder, path)
@@ -151,3 +146,4 @@ def serve(path):
 # ---------- Local run ----------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 3000)))
+
