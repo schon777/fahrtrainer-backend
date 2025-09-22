@@ -4,7 +4,7 @@ from flask_cors import CORS
 from sqlalchemy import create_engine, text
 
 # ---------- Flask ----------
-# WICHTIG: static_url_path="/static", damit /api/* nicht mit Static kollidiert
+# static_url_path="/static", damit /api/* garantiert nicht mit Static kollidiert
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 CORS(app, resources={r"/*": {"origins": os.getenv("ALLOWED_ORIGINS", "*").split(",")}})
 
@@ -28,6 +28,16 @@ def init_db():
             )
         """))
 init_db()
+
+# ---------- No-Cache für API ----------
+@app.after_request
+def add_no_cache_headers(resp):
+    # API-Responses niemals cachen
+    if request.path.startswith("/api/"):
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+    return resp
 
 # ---------- Health & Debug ----------
 @app.get("/api/ping")
@@ -134,7 +144,6 @@ def delete_fahrt(id):
     return ({"deleted": row[0]}, 200) if row else ({"error": "not found"}, 404)
 
 # ---------- Static: Catch-All ----------
-# / -> index.html, /index.html -> index.html, /assets/* -> echte Datei
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve(path):
@@ -146,4 +155,3 @@ def serve(path):
 # ---------- Local run ----------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 3000)))
-

@@ -5,31 +5,38 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Fahrtrainer</title>
   <style>
-    body { font-family: system-ui, Arial, sans-serif; margin: 24px; max-width: 900px }
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, Arial, sans-serif; margin: 24px; max-width: 960px }
     h1 { margin: 0 0 12px 0 }
     .card { padding: 16px; border: 1px solid #ddd; border-radius: 12px; margin: 12px 0 }
     form input, form button { padding: 10px; margin-right: 8px; margin-bottom: 8px }
     ul { padding-left: 18px }
-    .ok { color: #2e7d32 } .bad { color: #c62828 }
+    .ok { color: #2e7d32 } .bad { color: #c62828 } .muted{opacity:.8}
     button { cursor: pointer }
-    li { margin: 6px 0 }
-    .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+    li { margin: 6px 0; display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+    .grow { flex: 1 1 auto; min-width: 240px }
+    code { background: #f6f8fa; padding: 2px 6px; border-radius: 6px }
   </style>
 </head>
 <body>
   <h1>Fahrtrainer</h1>
 
   <div class="card" id="status">
-    <strong>Status:</strong>
-    <div>Backend: <span id="ping">prüfe…</span></div>
-    <div>DB: <span id="db">prüfe…</span></div>
+    <strong>Status</strong>
+    <div>Backend: <span id="ping" class="muted">prüfe…</span></div>
+    <div>DB: <span id="db" class="muted">prüfe…</span></div>
+    <div>API: <code id="apiurl"></code></div>
+    <div>DB Host: <span id="dbhost" class="muted">prüfe…</span></div>
+    <div style="margin-top:8px;">
+      <button id="refresh">Neu laden</button>
+    </div>
   </div>
 
   <div class="card">
     <h2>Neue Fahrt speichern</h2>
-    <form id="form" class="row">
-      <input id="start" placeholder="Start" required />
-      <input id="ziel"  placeholder="Ziel" required />
+    <form id="form">
+      <input id="start" placeholder="Startort" required />
+      <input id="ziel"  placeholder="Zielort" required />
       <input id="dauer" placeholder="Dauer (min)" type="number" min="0" />
       <button>Speichern</button>
     </form>
@@ -41,66 +48,104 @@
   </div>
 
   <script>
-    // Backend-URL:
+    // >>> Deine Backend-URL
     const API = "https://fahrtrainer-backend.onrender.com";
 
+    // ---- kleine Helfer
     const el = sel => document.querySelector(sel);
-
-    async function health() {
-      try {
-        const r = await fetch(`${API}/api/ping`);
-        el("#ping").textContent = r.ok ? "OK" : "Fehler";
-        el("#ping").className = r.ok ? "ok" : "bad";
-      } catch { el("#ping").textContent = "Fehler"; el("#ping").className = "bad"; }
-
-      try {
-        const r = await fetch(`${API}/api/time`);
-        el("#db").textContent = r.ok ? "OK" : "Fehler";
-        el("#db").className = r.ok ? "ok" : "bad";
-      } catch { el("#db").textContent = "Fehler"; el("#db").className = "bad"; }
+    const qs = s => document.querySelector(s);
+    function escapeHtml(s){ return (s ?? "").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+    function noStore(url){
+      const u = new URL(url, location.href);
+      u.searchParams.set("t", Date.now()); // Cache-Buster
+      return fetch(u.toString(), { cache: "no-store" });
     }
 
+    // ---- Status/Health
+    async function health() {
+      el("#apiurl").textContent = API;
+
+      try {
+        const r = await noStore(`${API}/api/ping`);
+        el("#ping").textContent = r.ok ? "OK" : "Fehler";
+        el("#ping").className = r.ok ? "ok" : "bad";
+      } catch {
+        el("#ping").textContent = "Fehler";
+        el("#ping").className = "bad";
+      }
+
+      try {
+        const r = await noStore(`${API}/api/time`);
+        el("#db").textContent = r.ok ? "OK" : "Fehler";
+        el("#db").className = r.ok ? "ok" : "bad";
+      } catch {
+        el("#db").textContent = "Fehler";
+        el("#db").className = "bad";
+      }
+
+      // DB-Host anzeigen (optional; Route ist in app.py vorhanden)
+      try {
+        const r = await noStore(`${API}/api/debug/db`);
+        if (r.ok) {
+          const d = await r.json();
+          el("#dbhost").textContent = d.host || "n/a";
+          el("#dbhost").className = "muted";
+        } else {
+          el("#dbhost").textContent = "n/a";
+        }
+      } catch { el("#dbhost").textContent = "n/a"; }
+    }
+
+    // ---- Liste rendern
     function render(items){
       const list = el("#list");
-      if(!items.length){ list.innerHTML = "<li>Noch keine Einträge.</li>"; return; }
-
+      if (!items.length) { list.innerHTML = "<li class='muted'>Noch keine Einträge.</li>"; return; }
       list.innerHTML = items.map(x => `
-        <li data-id="${x.id}" data-start="${encodeURIComponent(x.start)}"
+        <li data-id="${x.id}"
+            data-start="${encodeURIComponent(x.start)}"
             data-ziel="${encodeURIComponent(x.ziel)}"
             data-dauer="${x.dauer_minutes ?? ''}">
-          <span>#${x.id} ${escapeHtml(x.start)} → ${escapeHtml(x.ziel)}
+          <span class="grow">#${x.id} ${escapeHtml(x.start)} → ${escapeHtml(x.ziel)}
             (${x.dauer_minutes ?? "-"} min) – ${new Date(x.created_at).toLocaleString()}</span>
           <button class="edit">Bearbeiten</button>
           <button class="del">Löschen</button>
-        </li>`).join("");
+        </li>
+      `).join("");
     }
 
-    function escapeHtml(s){ return (s??"").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
-
+    // ---- Daten laden (No-Cache)
     async function load(){
-      const res = await fetch(`${API}/api/fahrten`);
-      if(!res.ok){ el("#list").innerHTML = "<li class='bad'>Fehler beim Laden.</li>"; return; }
-      const data = await res.json();
-      render(data.items || []);
+      try {
+        const res = await noStore(`${API}/api/fahrten`);
+        if (!res.ok) { el("#list").innerHTML = "<li class='bad'>Fehler beim Laden.</li>"; return; }
+        const data = await res.json();
+        render(data.items || []);
+      } catch {
+        el("#list").innerHTML = "<li class='bad'>Netzwerkfehler beim Laden.</li>";
+      }
     }
 
+    // ---- Neu anlegen
     async function addFahrt(e){
       e.preventDefault();
-      const start = el("#start").value.trim();
-      const ziel  = el("#ziel").value.trim();
-      const dauer = el("#dauer").value ? parseInt(el("#dauer").value, 10) : null;
-
-      const r = await fetch(`${API}/api/fahrten`, {
-        method:"POST",
-        headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify({ start, ziel, dauer_minutes: dauer })
-      });
-      if(!r.ok){ alert("Fehler beim Speichern"); return; }
-      el("#form").reset();
-      load();
+      const start = qs("#start").value.trim();
+      const ziel  = qs("#ziel").value.trim();
+      const dauer = qs("#dauer").value ? parseInt(qs("#dauer").value, 10) : null;
+      try {
+        const r = await fetch(`${API}/api/fahrten`, {
+          method:"POST",
+          headers:{ "Content-Type":"application/json" },
+          body: JSON.stringify({ start, ziel, dauer_minutes: dauer })
+        });
+        if(!r.ok){ const t = await r.text(); alert("Fehler beim Speichern: " + t); return; }
+        qs("#form").reset();
+        await load();
+      } catch {
+        alert("Netzwerkfehler beim Speichern");
+      }
     }
 
-    // Event-Delegation für Edit/Delete
+    // ---- Edit/Delete via Event-Delegation
     el("#list").addEventListener("click", async (e)=>{
       const li = e.target.closest("li[data-id]");
       if(!li) return;
@@ -110,7 +155,7 @@
         if(!confirm(`Fahrt #${id} löschen?`)) return;
         const r = await fetch(`${API}/api/fahrten/${id}`, { method: "DELETE" });
         if(!r.ok){ alert("Löschen fehlgeschlagen"); return; }
-        load();
+        await load();
       }
 
       if(e.target.classList.contains("edit")){
@@ -131,12 +176,14 @@
           body: JSON.stringify(payload)
         });
         if(!r.ok){ alert("Ändern fehlgeschlagen"); return; }
-        load();
+        await load();
       }
     });
 
+    // ---- Init
     window.addEventListener("DOMContentLoaded", () => {
       el("#form").addEventListener("submit", addFahrt);
+      el("#refresh").addEventListener("click", async () => { await load(); await health(); });
       health();
       load();
     });
