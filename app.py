@@ -1,9 +1,11 @@
-# app.py — Flask + SQLAlchemy Engine (Neon Postgres)
+# app.py — Flask + SQLAlchemy (Neon Postgres / Render)
 import os, json
 from datetime import datetime
 from flask import Flask, send_from_directory, jsonify, request
 from flask_cors import CORS
-from sqlalchemy import create_engine, text
+
+from sqlalchemy import create_engine, text, Table, MetaData, Column, Integer, Text
+from sqlalchemy.dialects.postgresql import insert, JSONB
 
 # ---------- Flask ----------
 # static_url_path="/static", damit /api/* nicht mit Static kollidiert
@@ -12,12 +14,13 @@ CORS(app, resources={r"/*": {"origins": os.getenv("ALLOWED_ORIGINS", "*").split(
 
 # ---------- DB ----------
 db_url = os.getenv("DATABASE_URL", "")
-# Render/Neon liefert oft "postgres://" -> für SQLAlchemy auf "postgresql://"
+# Render/Neon liefert oft "postgres://", für SQLAlchemy auf "postgresql://" umschreiben
 if db_url and db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 
 engine = create_engine(db_url, pool_pre_ping=True) if db_url else None
 
+# ---------- Tabellen-Init ----------
 def init_fahrten():
     if not engine:
         return
@@ -51,10 +54,20 @@ def init_kv():
 init_fahrten()
 init_kv()
 
+# SQLAlchemy-Table-Objekt (für UPSERT)
+_meta = MetaData()
+kv_table = Table(
+    "kv_items", _meta,
+    Column("id", Integer, primary_key=True),
+    Column("page", Text, nullable=False),
+    Column("k", Text, nullable=False),
+    Column("v", JSONB, nullable=False),
+    extend_existing=True
+)
+
 # ---------- No-Cache für API ----------
 @app.after_request
 def add_no_cache_headers(resp):
-    # API-Responses niemals cachen
     if request.path.startswith("/api/"):
         resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         resp.headers["Pragma"] = "no-cache"
@@ -79,7 +92,9 @@ def db_debug():
     if not engine:
         return {"engine": None}, 500
     with engine.connect() as conn:
-        db, host = conn.execute(text("select current_database(), inet_server_addr()::text")).one()
+        db, host = conn.execute(text(
+            "select current_database(), inet_server_addr()::text"
+        )).one()
     return {"db": db, "host": host}
 
 # ---------- Fahrten-API (CRUD) ----------
@@ -162,10 +177,12 @@ def delete_fahrt(id):
     if not engine:
         return {"error": "DB not ready"}, 500
     with engine.begin() as conn:
-        row = conn.execute(text("DELETE FROM fahrten WHERE id=:id RETURNING id"), {"id": id}).first()
+        row = conn.execute(text(
+            "DELETE FROM fahrten WHERE id=:id RETURNING id"
+        ), {"id": id}).first()
     return ({"deleted": row[0]}, 200) if row else ({"error": "not found"}, 404)
 
-# ---------- KV-API (Key/Value für Seiten) ----------
+# ---------- KV-API (Key/Value) ----------
 # Format wie dein Frontend erwartet:
 # GET  /api/kv?page=kalender        -> { items: [ {id, k, v}, ... ] }
 # POST /api/kv {page,key,value}     -> { id, k, v }  (UPSERT)
@@ -190,35 +207,35 @@ def kv_list():
 def kv_upsert():
     if not engine:
         return {"error": "DB not ready"}, 500
+
     data = request.get_json(force=True) or {}
     page = (data.get("page") or "").strip()
     key  = (data.get("key")  or "").strip()
     val  = data.get("value", {})
 
     if not page or not key:
-        return {"error":"page and key required"}, 400
+        return {"error": "page and key required"}, 400
 
-    # Immer gültiges JSON und als jsonb casten
-    val_json = json.dumps(val)
-
+    # Dialekt-sicheres UPSERT inkl. JSONB-Handling
     with engine.begin() as conn:
-        row = conn.execute(text("""
-            INSERT INTO kv_items (page, k, v, created_at, updated_at)
-            VALUES (:page, :k, :v::jsonb, NOW(), NOW())
-            ON CONFLICT (page, k)
-            DO UPDATE SET v = EXCLUDED.v, updated_at = NOW()
-            RETURNING id, k, v
-        """), {"page": page, "k": key, "v": val_json}).mappings().one()
+        stmt = insert(kv_table).values(page=page, k=key, v=val)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["page", "k"],
+            set_={"v": stmt.excluded.v, "updated_at": text("NOW()")}
+        ).returning(text("id, k, v"))
+        row = conn.execute(stmt).mappings().one()
 
-    return dict(row), 200  # {id, k, v}
+    return dict(row), 200  # -> {id, k, v}
 
 @app.delete("/api/kv/<int:item_id>")
 def kv_delete(item_id: int):
     if not engine:
-        return {"error":"DB not ready"}, 500
+        return {"error": "DB not ready"}, 500
     with engine.begin() as conn:
-        row = conn.execute(text("DELETE FROM kv_items WHERE id=:id RETURNING id"), {"id": item_id}).first()
-    return ({"deleted": row[0]}, 200) if row else ({"error":"not found"}, 404)
+        row = conn.execute(text(
+            "DELETE FROM kv_items WHERE id=:id RETURNING id"
+        ), {"id": item_id}).first()
+    return ({"deleted": row[0]}, 200) if row else ({"error": "not found"}, 404)
 
 # ---------- Static: Catch-All ----------
 @app.route("/", defaults={"path": ""})
