@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Main</title>
+<style>
+  body{font-family:sans-serif;margin:0}
+  header{border-bottom:1px solid #ccc;padding:8px}
+  nav a{margin-right:8px}
+  main{padding:12px;display:grid;gap:16px}
+  table{width:100%;border-collapse:collapse}
+  th,td{border:1px solid #ccc;padding:6px;text-align:left}
+  thead th{background:#f6f6f6}
+  .muted{color:#555}
+  .right{text-align:right}
+  button{background:transparent;border:1px solid #ccc;padding:6px 10px;cursor:pointer}
+  .bar{display:flex;justify-content:space-between;align-items:center}
+
+  /* ===== Mobile-Optimierung (≤ 640px) ===== */
+@media (max-width: 640px){
+  main{ padding:10px }
+  .row{ flex-direction:column; align-items:stretch; gap:10px }
+  .bar{ flex-direction:column; align-items:stretch; gap:8px }
+  nav a{ display:inline-block; padding:10px 12px }
+  button{ padding:10px 12px; min-height:44px }
+  input[type="text"],
+  input[type="date"],
+  input[type="time"],
+  select,
+  textarea{ width:100% }
+  table{ display:block; overflow-x:auto; -webkit-overflow-scrolling:touch }
+  thead th, tbody td{ white-space:nowrap }
+}
+</style>
+</head>
+<body>
+<header>
+  <nav>
+    <a href="main.html" aria-current="page">Main</a>
+    <a href="kalender.html">Kalender</a>
+    <a href="fahrschulfragen.html">Fahrschulfragen</a>
+    <a href="trainer.html">Trainer</a>
+  </nav>
+</header>
+
+<main>
+  <section>
+    <div class="bar">
+      <h2 style="margin:0">Überblick</h2>
+      <button id="btn-refresh" title="Daten neu laden">Aktualisieren</button>
+    </div>
+    <div id="stats" class="muted">Lade…</div>
+  </section>
+
+  <section>
+    <h3>Nächste Termine (7 Tage)</h3>
+    <table>
+      <thead><tr><th>Datum</th><th>Uhrzeit</th><th>Titel</th></tr></thead>
+      <tbody id="next-events"></tbody>
+    </table>
+    <div class="right"><a href="kalender.html"><button>Zum Kalender</button></a></div>
+  </section>
+
+  <section>
+    <h3>Kurse (Zusammenfassung)</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Kurs</th>
+          <th>#Themen</th>
+          <th>Fragen gesamt</th>
+          <th>Aktionen</th>
+        </tr>
+      </thead>
+      <tbody id="courses"></tbody>
+    </table>
+  </section>
+</main>
+
+<script src="kv.js"></script>
+<script>
+  const PAGE_KURSE="kurse", PAGE_THEMEN="themen", PAGE_FRAGEN="fragen";
+
+  const pad=n=>String(n).padStart(2,'0');
+  const toLocalDate=(ymd)=>{ const [Y,M,D]=(ymd||"").split("-").map(Number); if(!Y||!M||!D) return null; return new Date(Y, M-1, D); };
+  const escapeHtml=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  const statsEl  = document.getElementById('stats');
+  const tbNext   = document.getElementById('next-events');
+  const tbCourses= document.getElementById('courses');
+
+  async function listKurse(){  return (await KV.list(PAGE_KURSE)).map(x=>x.v); }
+  async function listThemen(){ return (await KV.list(PAGE_THEMEN)).map(x=>x.v); }
+  async function listFragen(){ return (await KV.list(PAGE_FRAGEN)).map(x=>x.v); }
+
+  async function renderStats(){
+    const [kurse,themen,fragen] = await Promise.all([listKurse(), listThemen(), listFragen()]);
+    statsEl.textContent = `Kurse: ${kurse.length} • Themen: ${themen.length} • Fahrschulfragen: ${fragen.length}`;
+    // Kurstabelle
+    tbCourses.innerHTML="";
+    if(kurse.length===0){ tbCourses.innerHTML = `<tr><td colspan="4" class="muted">Noch keine Kurse angelegt.</td></tr>`; return; }
+    for(const k of kurse){
+      const tList = themen.filter(t=>t.courseKid===k.kid);
+      const topicIds = new Set(tList.map(t=>t.kid));
+      const fList = fragen.filter(f=> topicIds.has(f.topicKid) );
+      const tr=document.createElement('tr');
+      tr.innerHTML = `
+        <td>${escapeHtml(k.name)}</td>
+        <td>${tList.length}</td>
+        <td>${fList.length}</td>
+        <td>
+          <a href="fahrschulfragen.html"><button>Bearbeiten</button></a>
+          <a href="trainer.html?course=${encodeURIComponent(k.kid)}&all=1"><button>Trainieren</button></a>
+        </td>`;
+      tbCourses.appendChild(tr);
+    }
+  }
+
+  async function loadNext7(){
+    tbNext.innerHTML = `<tr><td colspan="3" class="muted">Lade…</td></tr>`;
+    try {
+      const list = await KV.list("kalender"); // unverändert
+      const items = list.map(x => ({ id:x.id, key:x.k, ...x.v }))
+        .map(ev => ({ ...ev, _d: toLocalDate(ev.date) }))
+        .filter(ev => ev._d)
+        .sort((a,b)=> (a._d-b._d) || (a.time||"").localeCompare(b.time||""));
+
+      const now=new Date();
+      const today0=new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const in7 = new Date(today0); in7.setDate(in7.getDate()+7);
+      const upcoming = items.filter(ev=> ev._d >= today0 && ev._d <= in7);
+
+      if(upcoming.length===0){
+        tbNext.innerHTML = `<tr><td colspan="3" class="muted">Keine Termine in den nächsten 7 Tagen.</td></tr>`;
+        return;
+      }
+      tbNext.innerHTML = upcoming.slice(0,50).map(ev=>{
+        const d=ev._d, y=d.getFullYear(), m=pad(d.getMonth()+1), dd=pad(d.getDate());
+        return `<tr><td>${y}-${m}-${dd}</td><td>${ev.time||'--:--'}</td><td>${escapeHtml(ev.title||'')}</td></tr>`;
+      }).join("");
+    } catch (e) {
+      tbNext.innerHTML = `<tr><td colspan="3" class="muted">Fehler: ${escapeHtml(e.message||String(e))}</td></tr>`;
+    }
+  }
+
+  function renderAll(){ renderStats(); loadNext7(); }
+  document.getElementById('btn-refresh').onclick=renderAll;
+  renderAll();
+</script>
+
+
+</body>
+</html>

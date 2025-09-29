@@ -1,0 +1,15 @@
+<!doctype html><meta charset="utf-8">
+<title>KV Test</title>
+<script src="kv.js"></script>
+<h1>KV Test (page="kalender")</h1>
+<p>API: <code id="api"></code></p>
+<button id="ping">Ping</button>
+<button id="list">List</button>
+<button id="add">Create dummy</button>
+<pre id="out" style="border:1px solid #ccc;padding:8px"></pre>
+<script>
+  out.textContent = ""; api.textContent = API;
+  ping.onclick = async ()=>{ const r = await fetch(API+"/api/ping"); out.textContent = r.status+" "+(await r.text()); };
+  list.onclick = async ()=>{ const r = await fetch(API+"/api/kv?page=kalender"); out.textContent = await r.text(); };
+  add.onclick  = async ()=>{ const r = await fetch(API+"/api/kv",{method:"POST",headers:{'Content-Type':'application/json'},body:JSON.stringify({page:'kalender',key:'test-'+Date.now(),value:{date:new Date().toISOString().slice(0,10),title:'Dummy'}})}); out.textContent = await r.text(); };
+</script>

@@ -1,0 +1,699 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Trainer</title>
+<style>
+  body{font-family:sans-serif;margin:0}
+  header{border-bottom:1px solid #ccc;padding:8px}
+  nav a{margin-right:8px}
+  main{padding:12px;max-width:1000px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+  .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  button{background:transparent;border:1px solid #ccc;padding:6px 12px;cursor:pointer}
+  input[type="text"],select{padding:6px;border:1px solid #ccc}
+  .muted{color:#555}
+  .card{border:1px solid #ccc;padding:12px}
+  .q{font-weight:bold}
+  .a{margin-top:8px;border-top:1px dashed #ccc;padding-top:8px;white-space:pre-wrap}
+  .stats{display:flex;gap:12px}
+  .ok{color:#166534}
+  .bad{color:#b91c1c}
+  .bar{height:8px;background:#eee;border:1px solid #ccc}
+  .bar>span{display:block;height:100%;background:#999}
+  .center{display:flex;justify-content:center;gap:8px}
+  .choices{display:grid;gap:6px;margin-top:8px}
+  .choice{display:flex;align-items:center;gap:8px}
+  .chip{padding:2px 8px;border:1px solid #ccc;border-radius:999px}
+  .pill{padding:2px 8px;border:1px solid #ccc;border-radius:999px}
+  .letters{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .letter{min-width:28px;text-align:center;border:1px solid #ccc;padding:4px 6px;cursor:pointer}
+  .slots{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .slot{min-width:28px;text-align:center;border:1px dashed #aaa;padding:4px 6px}
+  .hidden{display:none}
+  .timer{font-variant-numeric:tabular-nums}
+
+  /* NEU: Style für Typed-Optionen */
+  .qt-option{display:block;margin:.25rem 0;padding:.5rem;border:1px solid #ccc;border-radius:.5rem}
+  .qt-pair{display:flex;gap:.5rem;margin:.25rem 0}
+  .drag-list{list-style:none;padding:0;margin:0}
+  .drag-item{padding:.5rem;margin:.25rem 0;border:1px dashed #aaa;border-radius:.5rem;cursor:grab}
+
+  /* ===== Mobile-Optimierung (≤ 640px) ===== */
+  @media (max-width: 640px){
+    main{ padding:10px }
+    .row{ flex-direction:column; align-items:stretch; gap:10px }
+    .bar{ flex-direction:column; align-items:stretch; gap:8px }
+    nav a{ display:inline-block; padding:10px 12px }
+    button{ padding:10px 12px; min-height:44px }
+    input[type="text"],
+    input[type="date"],
+    input[type="time"],
+    select,
+    textarea{ width:100% }
+    table{ display:block; overflow-x:auto; -webkit-overflow-scrolling:touch }
+    thead th, tbody td{ white-space:nowrap }
+    #calendar{ width:100% }
+    th, td{ padding:10px 6px }
+    td{ min-width:36px; min-height:44px }
+    td.markiert{ border-width:2px; border-radius:8px }
+    .choices{ display:grid; grid-template-columns:1fr; gap:8px }
+    .letters{ gap:8px }
+    .slot, .letter{ min-width:36px; padding:8px }
+    .actions button{ margin:4px 2px }
+  }
+</style>
+</head>
+<body>
+<header>
+  <nav>
+    <a href="main.html">Main</a>
+    <a href="kalender.html">Kalender</a>
+    <a href="fahrschulfragen.html">Fahrschulfragen</a>
+    <a href="trainer.html" aria-current="page">Trainer</a>
+  </nav>
+</header>
+
+<main>
+  <h2>Fahrschulfragen Trainer</h2>
+
+  <div class="row">
+    <label>Kurs
+      <select id="sel-course"></select>
+    </label>
+    <label>Thema
+      <select id="sel-topic"></select>
+    </label>
+    <label><input type="checkbox" id="chk-all-topics"> alle Themen</label>
+  </div>
+
+  <div class="row">
+    <label>Modus
+      <select id="sel-mode">
+        <option value="mixed">Gemischt (alle Methoden)</option>
+        <option value="card">Karteikarte</option>
+        <option value="input">Eingabe</option>
+        <option value="mc">Multiple Choice</option>
+        <option value="tf">Wahr/Falsch</option>
+        <option value="cloze">Lückentext (ein Wort)</option>
+        <option value="letters">Buchstaben-Puzzle</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="chk-shuffle" checked> zufällige Reihenfolge</label>
+    <label><input type="checkbox" id="chk-relapse"> falsche am Ende wiederholen</label>
+    <label><input type="checkbox" id="chk-normalize" checked> Antworten normalisieren</label>
+    <label class="row" style="margin-left:auto">
+      <input type="checkbox" id="chk-timer"> Timer
+      <input type="number" id="timer-sec" min="5" value="20" style="width:70px"> s
+      <span id="timer-left" class="pill timer hidden">—</span>
+    </label>
+    <button id="btn-start">Start</button>
+  </div>
+
+  <div id="panel-empty" class="muted">Bitte Kurs/Thema wählen und auf <strong>Start</strong> klicken.</div>
+
+  <div id="panel-train" hidden>
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <div class="stats">
+        <div>Fortschritt: <span id="s-idx">0</span>/<span id="s-total">0</span></div>
+        <div class="ok">Richtig: <span id="s-ok">0</span></div>
+        <div class="bad">Falsch: <span id="s-bad">0</span></div>
+      </div>
+      <div class="chip" id="chip-mode">—</div>
+    </div>
+    <div class="bar"><span id="bar-fill" style="width:0%"></span></div>
+
+    <div class="card">
+      <div class="q" id="q-text">—</div>
+
+      <!-- NEU: Typed-Container (für v2-Fragen) -->
+      <div id="qt-stem" class="q hidden"></div>
+      <div id="qt-area" class="hidden"></div>
+      <div id="qt-feedback" class="muted hidden"></div>
+      <div class="row hidden" id="qt-actions" style="margin-top:8px;">
+        <button id="qt-check" type="button">Prüfen</button>
+        <button id="qt-next"  type="button">Weiter</button>
+      </div>
+
+      <!-- Eingabe-Modus -->
+      <div id="mode-input" class="row hidden" style="margin-top:8px;">
+        <input type="text" id="answer-in" placeholder="Antwort eingeben…" />
+        <button id="btn-check">Prüfen</button>
+        <span id="check-msg" class="muted"></span>
+      </div>
+
+      <!-- Multiple Choice -->
+      <div id="mode-mc" class="hidden">
+        <div class="choices" id="mc-choices"></div>
+        <div class="row" style="margin-top:8px;">
+          <button id="btn-check-mc">Antwort prüfen</button>
+          <span id="mc-msg" class="muted"></span>
+        </div>
+      </div>
+
+      <!-- Wahr/Falsch -->
+      <div id="mode-tf" class="hidden">
+        <div class="muted" style="margin-top:8px;">Passt die angezeigte Antwort zu dieser Frage?</div>
+        <div id="tf-proposed" class="pill" style="margin-top:6px;">—</div>
+        <div class="row" style="margin-top:8px;">
+          <button id="btn-tf-true">Stimmt</button>
+          <button id="btn-tf-false">Stimmt nicht</button>
+          <span id="tf-msg" class="muted"></span>
+        </div>
+      </div>
+
+      <!-- Lückentext (ein Wort) -->
+      <div id="mode-cloze" class="hidden">
+        <div id="cloze-text" style="margin-top:8px;"></div>
+        <div class="row" style="margin-top:8px;">
+          <input type="text" id="cloze-in" placeholder="fehlendes Wort…" />
+          <button id="btn-cloze-check">Prüfen</button>
+          <span id="cloze-msg" class="muted"></span>
+        </div>
+      </div>
+
+      <!-- Buchstaben-Puzzle -->
+      <div id="mode-letters" class="hidden">
+        <div class="slots" id="letters-slots"></div>
+        <div class="letters" id="letters-bank"></div>
+        <div class="row" style="margin-top:8px;">
+          <button id="btn-letters-clear">Zurücksetzen</button>
+          <button id="btn-letters-check">Prüfen</button>
+          <span id="letters-msg" class="muted"></span>
+        </div>
+      </div>
+
+      <div class="a" id="a-text" hidden></div>
+    </div>
+
+    <div class="center" style="margin-top:8px;">
+      <button id="btn-show">Antwort anzeigen</button>
+      <button id="btn-correct">Richtig</button>
+      <button id="btn-wrong">Falsch</button>
+      <button id="btn-prev">Zurück</button>
+      <button id="btn-next">Weiter</button>
+    </div>
+
+    <div class="row" style="justify-content:space-between;margin-top:8px;">
+      <button id="btn-restart">Neu starten</button>
+    </div>
+  </div>
+</main>
+
+<script src="kv.js"></script>
+<script>
+  const PAGE_KURSE="kurse", PAGE_THEMEN="themen", PAGE_FRAGEN="fragen";
+  const $=s=>document.querySelector(s);
+  const escapeHtml=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  // UI refs
+  const selCourse=$("#sel-course"), selTopic=$("#sel-topic"), chkAll=$("#chk-all-topics");
+  const selMode=$("#sel-mode"), chkShuffle=$("#chk-shuffle"), chkRelapse=$("#chk-relapse"), chkNormalize=$("#chk-normalize");
+  // === Gemischt: Legacy-Modi-Pool + Picker ===
+const LEGACY_MODES = ["card","input","mc","tf","cloze","letters"];
+function pickLegacyMode(){
+  return LEGACY_MODES[Math.floor(Math.random() * LEGACY_MODES.length)];
+}
+function modeLabel(m){
+  return (
+    m==="card"   ? "Karteikarte" :
+    m==="input"  ? "Eingabe" :
+    m==="mc"     ? "Multiple Choice" :
+    m==="tf"     ? "Wahr/Falsch" :
+    m==="cloze"  ? "Lückentext" :
+    m==="letters"? "Buchstaben-Puzzle" :
+    m==="mixed"  ? "Gemischt" : "—"
+  );
+}
+
+  const chkTimer=$("#chk-timer"), timerSec=$("#timer-sec"), timerLeft=$("#timer-left");
+  const btnStart=$("#btn-start"), panelEmpty=$("#panel-empty"), panelTrain=$("#panel-train");
+  const qText=$("#q-text"), aText=$("#a-text"), btnShow=$("#btn-show"), btnCorrect=$("#btn-correct"), btnWrong=$("#btn-wrong");
+  const btnPrev=$("#btn-prev"), btnNext=$("#btn-next");
+  const modeInput=$("#mode-input"), ansIn=$("#answer-in"), btnCheck=$("#btn-check"), checkMsg=$("#check-msg");
+  const modeMC=$("#mode-mc"), mcChoices=$("#mc-choices"), btnCheckMC=$("#btn-check-mc"), mcMsg=$("#mc-msg");
+  const modeTF=$("#mode-tf"), tfProposed=$("#tf-proposed"), btnTFTrue=$("#btn-tf-true"), btnTFFalse=$("#btn-tf-false"), tfMsg=$("#tf-msg");
+  const modeCloze=$("#mode-cloze"), clozeText=$("#cloze-text"), clozeIn=$("#cloze-in"), btnClozeCheck=$("#btn-cloze-check"), clozeMsg=$("#cloze-msg");
+  const modeLetters=$("#mode-letters"), lettersSlots=$("#letters-slots"), lettersBank=$("#letters-bank"), btnLettersClear=$("#btn-letters-clear"), btnLettersCheck=$("#btn-letters-check"), lettersMsg=$("#letters-msg");
+  const sIdx=$("#s-idx"), sTot=$("#s-total"), sOk=$("#s-ok"), sBad=$("#s-bad"), barFill=$("#bar-fill"), btnRestart=$("#btn-restart"), chipMode=$("#chip-mode");
+
+  // Datenquellen
+  async function listKurse(){  return (await KV.list(PAGE_KURSE)).map(x=>x.v); }
+  async function listThemen(){ return (await KV.list(PAGE_THEMEN)).map(x=>x.v); }
+  async function listFragen(){ return (await KV.list(PAGE_FRAGEN)).map(x=>x.v); }
+
+  // Trainer-Session
+  let QUESTIONS=[], order=[], idx=0, okCount=0, badCount=0, wrongKids=new Set(), timerHandle=null, timeLeft=0;
+
+  function normalize(str){ if(!chkNormalize.checked) return String(str||""); return String(str||"").toLowerCase().replace(/[.,;:!?()"'`´^°\\/_-]/g,"").replace(/\s+/g,"").trim(); }
+  function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } }
+  function getQuery(){ const p=new URLSearchParams(location.search); return { course:p.get("course"), topic:p.get("topic"), all:p.get("all")==="1" }; }
+
+  async function fillCourses(){
+    const kurse=await listKurse();
+    selCourse.innerHTML = kurse.length? "" : "<option value=''>-- kein Kurs --</option>";
+    for(const k of kurse){
+      const o=document.createElement("option"); o.value=k.kid; o.textContent=k.name; selCourse.appendChild(o);
+    }
+    await fillTopics();
+  }
+  async function fillTopics(){
+    const courseKid = selCourse.value;
+    const topics=(await listThemen()).filter(t=>t.courseKid===courseKid);
+    selTopic.innerHTML = topics.length? "" : "<option value=''>-- kein Thema --</option>";
+    for(const t of topics){
+      const o=document.createElement("option"); o.value=t.kid; o.textContent=t.name; selTopic.appendChild(o);
+    }
+  }
+  selCourse.addEventListener("change", fillTopics);
+
+  async function startSession(){
+    const courseKid=selCourse.value;
+    const topicKid =selTopic.value;
+    const allQ=await listFragen();
+    let pool=[];
+    if(chkAll.checked){
+      const topicIds=(await listThemen()).filter(t=>t.courseKid===courseKid).map(t=>t.kid);
+      pool=allQ.filter(q=>topicIds.includes(q.topicKid));
+    }else{
+      pool=allQ.filter(q=>q.topicKid===topicKid);
+    }
+    if(pool.length===0){ alert("Keine Fragen gefunden."); return; }
+
+    // Mapping (Legacy vs. v2)
+    QUESTIONS = pool.map(q=>{
+      if(q.type){
+        return { kid:q.kid, type:q.type, stem:q.stem||null, text:q.text||null, payload:q.payload||{}, explain:q.explain||"", topicKid:q.topicKid, courseKid:q.courseKid };
+      } else {
+        return { kid:q.kid, type:"legacy", frage:q.frage||"", antwort:q.antwort||"" };
+      }
+    });
+
+    order=QUESTIONS.map((_,i)=>i);
+    if(chkShuffle.checked) shuffle(order);
+    idx=0; okCount=0; badCount=0; wrongKids.clear();
+    sTot.textContent=QUESTIONS.length;
+    panelEmpty.hidden=true; panelTrain.hidden=false;
+    applyMode(); showCurrent(true); updateStats();
+    function applyMode(){
+  const base = selMode.value;           // "card" | "input" | ... | "mixed"
+  chipMode.textContent = modeLabel(base);
+
+  // Bei "mixed" zeigen wir erstmal keine Legacy-UI; die Wahl passiert je Frage in showCurrent()
+  const hideAllLegacy = (base === "mixed");
+  modeInput.classList.toggle("hidden", hideAllLegacy || base!=="input");
+  modeMC.classList.toggle("hidden",    hideAllLegacy || base!=="mc");
+  modeTF.classList.toggle("hidden",    hideAllLegacy || base!=="tf");
+  modeCloze.classList.toggle("hidden", hideAllLegacy || base!=="cloze");
+  modeLetters.classList.toggle("hidden", hideAllLegacy || base!=="letters");
+
+  // Antwort-Anzeige nur im Karteikarten-Modus (außer mixed)
+  aText.hidden = hideAllLegacy || base!=="card";
+  if(base==="card") aText.hidden = true; // Antwort erst auf „Antwort anzeigen“
+}
+
+  }
+  btnStart.onclick=startSession;
+
+  function applyMode(){
+    const mode=selMode.value;
+    chipMode.textContent = (
+      mode==="card"   ? "Karteikarte" :
+      mode==="input"  ? "Eingabe" :
+      mode==="mc"     ? "Multiple Choice" :
+      mode==="tf"     ? "Wahr/Falsch" :
+      mode==="cloze"  ? "Lückentext" : "Buchstaben-Puzzle"
+    );
+    modeInput.classList.toggle("hidden", mode!=="input");
+    btnShow.hidden   = (mode!=="card");
+    modeMC.classList.toggle("hidden", mode!=="mc");
+    modeTF.classList.toggle("hidden", mode!=="tf");
+    modeCloze.classList.toggle("hidden", mode!=="cloze");
+    modeLetters.classList.toggle("hidden", mode!=="letters");
+    aText.hidden = mode!=="card";
+    if(mode==="card") aText.hidden=true;
+  }
+  function currentQ(){ return QUESTIONS[order[idx]]; }
+
+  // === Legacy-Modi (MC/TF/Cloze/Letters) ===
+  function uniqueNonEmpty(arr){
+    const s=new Set(); const out=[];
+    arr.forEach(x=>{ const k=normalize(x); if(k && !s.has(k)){ s.add(k); out.push(x); } });
+    return out;
+  }
+  let MC_STATE={selected:null, options:[]};
+  function makeMCOptions(correct, poolAnswers){
+    const uniq=uniqueNonEmpty(poolAnswers);
+    const correctNorm=normalize(correct);
+    const distractors=uniq.filter(a=>normalize(a)!==correctNorm);
+    shuffle(distractors);
+    const options=[correct, ...distractors.slice(0,3)];
+    shuffle(options);
+    return options;
+  }
+  function renderMC(){
+    const q=currentQ();
+    const poolAnswers = QUESTIONS.map(x=>x.antwort).filter(Boolean);
+    MC_STATE.options = makeMCOptions(q.antwort, poolAnswers);
+    MC_STATE.selected=null; mcChoices.innerHTML=""; mcMsg.textContent="";
+    MC_STATE.options.forEach((opt,i)=>{
+      const id=`mc-${idx}-${i}`;
+      const wrap=document.createElement("label"); wrap.className="choice";
+      wrap.innerHTML=`<input type="radio" name="mc" id="${id}" value="${i}"><span>${escapeHtml(opt)}</span>`;
+      wrap.querySelector("input").onchange=(e)=>{MC_STATE.selected=Number(e.target.value); mcMsg.textContent="";};
+      mcChoices.appendChild(wrap);
+    });
+  }
+
+  let TF_STATE={isCorrect:false, proposed:""};
+  function renderTF(){
+    const q=currentQ(); const poolAnswers=QUESTIONS.map(x=>x.antwort).filter(Boolean);
+    const coin=Math.random()<0.5;
+    if(coin || poolAnswers.length<2){ TF_STATE.isCorrect=true; TF_STATE.proposed=q.antwort; }
+    else{
+      let wrong=null, tries=0, target=normalize(q.antwort);
+      while(tries<20){ const cand=poolAnswers[Math.floor(Math.random()*poolAnswers.length)];
+        if(normalize(cand)!==target){ wrong=cand; break; } tries++;
+      }
+      TF_STATE.isCorrect=false; TF_STATE.proposed=wrong || (q.antwort+"X");
+    }
+    tfProposed.textContent=TF_STATE.proposed||"—"; tfMsg.textContent="";
+  }
+
+  let CLOZE_STATE={target:"", masked:""};
+  function chooseClozeWord(ans){ const w=(ans||"").split(/\s+/).filter(w=>w.length>=3); if(!w.length) return null; return w[Math.floor(Math.random()*w.length)]; }
+  function maskWordInAnswer(ans, word){ const re=new RegExp("\\b"+word.replace(/[.*+?^${}()|[\\]\\\\]/g,"\\$&")+"\\b","i"); return ans.replace(re,"_".repeat(Math.max(3, Math.min(10, word.length)))); }
+  function renderCloze(){ const ans=currentQ().antwort||""; const w=chooseClozeWord(ans); if(!w){CLOZE_STATE.target=""; CLOZE_STATE.masked=ans;} else{CLOZE_STATE.target=w; CLOZE_STATE.masked=maskWordInAnswer(ans,w);} clozeText.textContent=CLOZE_STATE.masked; clozeIn.value=""; clozeMsg.textContent=""; }
+
+  let LETTERS_STATE={answerNorm:"", slots:[], bank:[]};
+  function lettersOnly(s){ return (s||"").toLowerCase().replace(/[^a-z0-9äöüß]/g,""); }
+  function renderLetters(){
+    const ans=lettersOnly(currentQ().antwort);
+    LETTERS_STATE.answerNorm=ans;
+    let bank=ans.split(""); const pool=QUESTIONS.map(x=>lettersOnly(x.antwort)).join("");
+    const extras=[]; for(let i=0;i<Math.min(4, Math.max(0, 2+Math.floor(Math.random()*3)));i++){ const ch=pool.charAt(Math.floor(Math.random()*pool.length))||"x"; extras.push(ch); }
+    bank=bank.concat(extras); shuffle(bank); LETTERS_STATE.bank=bank; LETTERS_STATE.slots=new Array(ans.length).fill("");
+    lettersSlots.innerHTML=""; LETTERS_STATE.slots.forEach((v,i)=>{ const el=document.createElement("div"); el.className="slot"; el.dataset.idx=i; el.textContent=v||""; lettersSlots.appendChild(el); });
+    lettersBank.innerHTML=""; LETTERS_STATE.bank.forEach((ch)=>{ const el=document.createElement("button"); el.type="button"; el.className="letter"; el.textContent=ch; el.dataset.ch=ch; el.onclick=()=>placeLetter(ch, el); lettersBank.appendChild(el); });
+    lettersMsg.textContent="";
+  }
+  function placeLetter(ch, btn){
+    const pos=LETTERS_STATE.slots.indexOf(""); if(pos===-1) return;
+    LETTERS_STATE.slots[pos]=ch; lettersSlots.children[pos].textContent=ch; btn.disabled=true;
+  }
+  $("#btn-letters-clear").onclick=()=>{ for(let i=0;i<lettersSlots.children.length;i++){ lettersSlots.children[i].textContent=""; LETTERS_STATE.slots[i]=""; } Array.from(lettersBank.children).forEach(b=>b.disabled=false); lettersMsg.textContent=""; };
+
+  // Timer & Fortschritt
+  function stopTimer(){ if(timerHandle){ clearInterval(timerHandle); timerHandle=null; } timerLeft.classList.add("hidden"); }
+  function startTimer(){
+    stopTimer(); if(!chkTimer.checked) return;
+    timeLeft = Math.max(5, Number(timerSec.value)||20);
+    timerLeft.textContent = timeLeft+"s"; timerLeft.classList.remove("hidden");
+    timerHandle = setInterval(()=>{ timeLeft--; timerLeft.textContent=timeLeft+"s"; if(timeLeft<=0){ stopTimer(); badCount++; wrongKids.add(currentQ().kid); updateStats(); nextQ(); } },1000);
+  }
+  function showCurrent(reset=false){
+    const q=currentQ(); qText.innerHTML=escapeHtml(q.frage||"—"); aText.textContent=q.antwort||"";
+    const baseMode = selMode.value;                 // vom Dropdown
+const mode = (baseMode === "mixed" ? pickLegacyMode() : baseMode);
+chipMode.textContent = (baseMode === "mixed")
+  ? `Gemischt / ${modeLabel(mode)}`
+  : modeLabel(mode);
+
+    if(mode==="card"){ aText.hidden=true; }
+    else if(mode==="input"){ if(reset){ ansIn.value=""; checkMsg.textContent=""; } }
+    else if(mode==="mc"){ renderMC(); }
+    else if(mode==="tf"){ renderTF(); }
+    else if(mode==="cloze"){ renderCloze(); }
+    else if(mode==="letters"){ renderLetters(); }
+    sIdx.textContent=idx+1; startTimer();
+  }
+  function updateStats(){ sOk.textContent=okCount; sBad.textContent=badCount; barFill.style.width=((idx)/QUESTIONS.length*100).toFixed(1)+"%"; }
+
+  btnShow.onclick=()=>{ aText.hidden=false; stopTimer(); };
+  btnCorrect.onclick=()=>{ okCount++; stopTimer(); nextQ(); };
+  btnWrong.onclick=()=>{ badCount++; wrongKids.add(currentQ().kid); stopTimer(); nextQ(); };
+  btnPrev.onclick=()=>{ if(idx>0){ idx--; stopTimer(); showCurrent(true); updateStats(); } };
+  btnNext.onclick=()=>{ stopTimer(); nextQ(); };
+
+  btnCheck.onclick=()=>{ const q=currentQ(); const user=ansIn.value; const good = normalize(user)===normalize(q.antwort); if(good){ checkMsg.textContent="✔ Richtig"; checkMsg.className="ok"; okCount++; stopTimer(); nextQ(); }else{ checkMsg.textContent="✘ Falsch – "+q.antwort; checkMsg.className="bad"; badCount++; wrongKids.add(q.kid); } updateStats(); };
+  btnCheckMC.onclick=()=>{
+    const radios=mcChoices.querySelectorAll("input[type=radio]"); let selected=-1; radios.forEach((r,i)=>{ if(r.checked) selected=i; });
+    if(selected<0){ mcMsg.textContent="Bitte eine Option wählen."; return; }
+    const q=currentQ(); const chosen = MC_STATE.options[selected]; const good=normalize(chosen)===normalize(q.antwort);
+    if(good){ mcMsg.textContent="✔ Richtig"; mcMsg.className="ok"; okCount++; stopTimer(); nextQ(); } else { mcMsg.textContent=`✘ Falsch – richtig ist: ${q.antwort}`; mcMsg.className="bad"; badCount++; wrongKids.add(q.kid); }
+    updateStats();
+  };
+  $("#btn-tf-true").onclick=()=>gradeTF(true);
+  $("#btn-tf-false").onclick=()=>gradeTF(false);
+  function gradeTF(answerTrue){
+    const modeOk = (answerTrue===TF_STATE.isCorrect);
+    if(modeOk){ tfMsg.textContent="✔ Richtig"; tfMsg.className="ok"; okCount++; stopTimer(); nextQ(); }
+    else{ tfMsg.textContent="✘ Falsch"; tfMsg.className="bad"; badCount++; wrongKids.add(currentQ().kid); }
+    updateStats();
+  }
+  $("#btn-cloze-check").onclick=()=>{
+    const good = normalize(clozeIn.value)===normalize((CLOZE_STATE.target||""));
+    if(good){ clozeMsg.textContent="✔ Richtig"; clozeMsg.className="ok"; okCount++; stopTimer(); nextQ(); }
+    else{ clozeMsg.textContent=`✘ Falsch – gesucht: ${CLOZE_STATE.target}`; clozeMsg.className="bad"; badCount++; wrongKids.add(currentQ().kid); }
+    updateStats();
+  };
+  $("#btn-letters-check").onclick=()=>{
+    const built = Array.from(lettersSlots.children).map(x=>x.textContent||"").join("").toLowerCase().replace(/[^a-z0-9äöüß]/g,"");
+    const target = LETTERS_STATE.answerNorm;
+    const good = built===target && built.length===target.length;
+    if(good){ lettersMsg.textContent="✔ Richtig"; lettersMsg.className="ok"; okCount++; stopTimer(); nextQ(); }
+    else{ lettersMsg.textContent=`✘ Falsch – richtig: ${currentQ().antwort}`; lettersMsg.className="bad"; badCount++; wrongKids.add(currentQ().kid); }
+    updateStats();
+  };
+
+  function nextQ(){
+    if(idx<QUESTIONS.length-1){ idx++; showCurrent(true); updateStats(); }
+    else if(chkRelapse.checked && wrongKids.size>0){
+      const wrongQs=QUESTIONS.filter(q=>wrongKids.has(q.kid));
+      QUESTIONS=wrongQs; order=QUESTIONS.map((_,i)=>i); idx=0; wrongKids.clear();
+      okCount=0; badCount=0; sTot.textContent=QUESTIONS.length; showCurrent(true); updateStats();
+    }else{
+      alert("Fertig!");
+    }
+  }
+  $("#btn-restart").onclick=startSession;
+
+  // Init
+  (async function init(){
+    await fillCourses();
+    const q=getQuery();
+    if(q.course){ selCourse.value=q.course; await fillTopics(); if(q.all) chkAll.checked=true; if(q.topic) selTopic.value=q.topic; startSession(); }
+  })();
+
+  /* === Typed-Renderer für v2-Fragen (single, multi, tf, short, numeric, cloze, order, match) === */
+  function __isTyped(q){ return q && q.type && q.type !== "legacy"; }
+  function __qs(sel){ return document.querySelector(sel); }
+  function __make(tag, attrs={}, ...kids){
+    const el = document.createElement(tag);
+    for (const [k,v] of Object.entries(attrs)){
+      if (k === "class") el.className = v;
+      else if (k === "html") el.innerHTML = v;
+      else el.setAttribute(k, v);
+    }
+    for (const k of kids) el.appendChild(typeof k === "string" ? document.createTextNode(k) : k);
+    return el;
+  }
+  function __norm(val, rules){
+    let s = String(val ?? "");
+    if (!rules) return s;
+    if (rules.includes("trim")) s = s.trim();
+    if (rules.includes("lower")) s = s.toLowerCase();
+    if (rules.includes("comma2dot")) s = s.replace(",",".");
+    return s;
+  }
+
+  const __qtStem     = __qs("#qt-stem");
+  const __qtArea     = __qs("#qt-area");
+  const __qtFeedback = __qs("#qt-feedback");
+  const __qtActions  = __qs("#qt-actions");
+  const __qtBtnCheck = __qs("#qt-check");
+  const __qtBtnNext  = __qs("#qt-next");
+
+  function __showTyped(q){
+    const useTyped = __isTyped(q);
+    __qtStem.classList.toggle("hidden", !useTyped);
+    __qtArea.classList.toggle("hidden", !useTyped);
+    __qtFeedback.classList.toggle("hidden", !useTyped);
+    __qtActions.classList.toggle("hidden", !useTyped);
+
+    if (typeof selMode !== "undefined") {
+      const legacyIds = ["mode-input","mode-mc","mode-tf","mode-cloze","mode-letters"];
+      legacyIds.forEach(id=>{
+        const el = document.getElementById(id);
+        if (el) el.classList.toggle("hidden", useTyped);
+      });
+    }
+    if (typeof aText !== "undefined") aText.hidden = useTyped;
+
+    if (!useTyped) return { grader: null };
+
+    __qtArea.innerHTML = "";
+    __qtFeedback.textContent = "";
+    __qtStem.textContent = q.stem || q.text || "—";
+
+    __qtBtnNext.onclick = function(){
+      if (typeof stopTimer === "function") stopTimer();
+      if (typeof nextQ === "function") nextQ();
+    };
+
+    let grader = null;
+
+    if (q.type === "single") {
+      const { options, correct } = q.payload;
+      options.forEach((opt,i)=>{
+        __qtArea.appendChild(__make("label",{class:"qt-option"},
+          __make("input",{type:"radio",name:"qt-single",value:String(i)}),
+          __make("span",{}, opt)
+        ));
+      });
+      grader = ()=>{
+        const c = __qtArea.querySelector("input[name=qt-single]:checked");
+        __gradeTyped(c && Number(c.value) === Number(correct), q.explain);
+      };
+    }
+    else if (q.type === "multi") {
+      const { options, correct } = q.payload;
+      options.forEach((opt,i)=>{
+        __qtArea.appendChild(__make("label",{class:"qt-option"},
+          __make("input",{type:"checkbox",value:String(i)}),
+          __make("span",{}, opt)
+        ));
+      });
+      grader = ()=>{
+        const chosen = Array.from(__qtArea.querySelectorAll("input[type=checkbox]:checked")).map(x=>Number(x.value)).sort();
+        const expect = [...correct].map(Number).sort();
+        __gradeTyped(JSON.stringify(chosen) === JSON.stringify(expect), q.explain);
+      };
+    }
+    else if (q.type === "tf") {
+      __qtArea.appendChild(__make("label",{class:"qt-option"},
+        __make("input",{type:"radio",name:"qt-tf",value:"true"}), "Richtig"));
+      __qtArea.appendChild(__make("label",{class:"qt-option"},
+        __make("input",{type:"radio",name:"qt-tf",value:"false"}), "Falsch"));
+      grader = ()=>{
+        const c = __qtArea.querySelector("input[name=qt-tf]:checked");
+        __gradeTyped(c && (String(q.payload.correct) === c.value), q.explain);
+      };
+    }
+    else if (q.type === "short") {
+      const rules = q.payload?.normalize || ["trim","lower"];
+      const inp = __make("input",{type:"text",style:"width:100%"});
+      __qtArea.appendChild(inp);
+      grader = ()=>{
+        const ok = __norm(inp.value, rules) === __norm(q.payload.answer, rules);
+        __gradeTyped(ok, q.explain);
+      };
+    }
+    else if (q.type === "numeric") {
+      const inp = __make("input",{type:"number",step:"any",style:"width:100%"});
+      __qtArea.appendChild(inp);
+      grader = ()=>{
+        const v = Number(String(inp.value).replace(",","."));
+        const t = Number(q.payload.target);
+        const tol = Number(q.payload.tol || 0);
+        const ok = isFinite(v) && Math.abs(v - t) <= tol;
+        __gradeTyped(ok, q.explain || `Ziel: ${t}${q.payload.unit ? " "+q.payload.unit : ""}`);
+      };
+    }
+    else if (q.type === "cloze") {
+      const rules = q.payload?.normalize || ["trim","lower"];
+      const html = (q.text || "").replace(/\[\[([a-zA-Z0-9_-]+)\]\]/g, (_,g)=>`<input data-gap="${g}" class="qt-cloze" style="width:12ch">`);
+      __qtArea.appendChild(__make("div",{html}));
+      grader = ()=>{
+        const ins = Array.from(__qtArea.querySelectorAll("input.qt-cloze"));
+        let ok = true;
+        ins.forEach(inp=>{
+          const id = inp.getAttribute("data-gap");
+          const ans = q.payload?.answers?.[id] || "";
+          if (__norm(inp.value, rules) !== __norm(ans, rules)) ok = false;
+        });
+        __gradeTyped(ok, q.explain);
+      };
+    }
+    else if (q.type === "order") {
+      const ul = __make("ul",{class:"drag-list"});
+      q.payload.items.forEach((t,i)=>{
+        const li = __make("li",{class:"drag-item",draggable:"true","data-idx":String(i)}, t);
+        li.addEventListener("dragstart", e=> e.dataTransfer.setData("text/plain", i));
+        li.addEventListener("dragover", e=> e.preventDefault());
+        li.addEventListener("drop", e=>{
+          e.preventDefault();
+          const from = Number(e.dataTransfer.getData("text/plain"));
+          const nodes = Array.from(ul.children);
+          const dragged = nodes.find(n=> Number(n.getAttribute("data-idx")) === from);
+          const to = nodes.indexOf(li);
+          if (dragged) ul.insertBefore(dragged, (to > nodes.indexOf(dragged)) ? li.nextSibling : li);
+        });
+        ul.appendChild(li);
+      });
+      __qtArea.appendChild(ul);
+      grader = ()=>{
+        const order = Array.from(ul.children).map(li=> Number(li.getAttribute("data-idx")));
+        const ok = JSON.stringify(order) === JSON.stringify(q.payload.correct.map(Number));
+        __gradeTyped(ok, q.explain);
+      };
+    }
+    else if (q.type === "match") {
+      const { left, right, pairs } = q.payload;
+      left.forEach((l, li)=>{
+        const row = __make("div",{class:"qt-pair"},
+          __make("div",{style:"flex:1"}, l),
+          (()=>{
+            const sel = __make("select",{"data-left":String(li)});
+            sel.appendChild(__make("option",{value:""},"— wählen —"));
+            right.forEach((r,ri)=> sel.appendChild(__make("option",{value:String(ri)}, r)));
+            return sel;
+          })()
+        );
+        __qtArea.appendChild(row);
+      });
+      grader = ()=>{
+        const sels = Array.from(__qtArea.querySelectorAll("select[data-left]"));
+        const user = sels.filter(s=>s.value!=="").map(s=>[Number(s.getAttribute("data-left")), Number(s.value)]);
+        const okSet = new Set(pairs.map(p=>p.join("-")));
+        let good = 0;
+        user.forEach(p=>{ if (okSet.has(p.join("-"))) good++; });
+        const score = pairs.length ? good / pairs.length : 0;
+        __gradeTyped(score >= 1, q.explain); // ggf. Teilpunkte anzeigen
+      };
+    }
+
+    __qtBtnCheck.onclick = ()=> { if (grader) grader(); };
+  }
+
+  function __gradeTyped(ok, explain){
+    __qtFeedback.textContent = ok ? "✔ Richtig" : "✘ Falsch";
+    __qtFeedback.className = ok ? "ok" : "bad";
+    try{
+      if (ok) { okCount++; if (typeof stopTimer === "function") stopTimer(); }
+      else { badCount++; if (typeof currentQ === "function") wrongKids.add(currentQ().kid); }
+      updateStats();
+    } catch(e){}
+    if (explain) __qtFeedback.textContent += " — " + explain;
+  }
+
+  const __origShowCurrent = (typeof showCurrent === "function") ? showCurrent : null;
+  showCurrent = function(reset=false){
+    if (!__origShowCurrent) return;
+    const q = (typeof currentQ === "function") ? currentQ() : null;
+
+    if (__isTyped(q)) {
+      __origShowCurrent.call(this, true);    // Timer/Stats reset
+      __showTyped(q);
+    } else {
+      __qtStem.classList.add("hidden");
+      __qtArea.classList.add("hidden");
+      __qtFeedback.classList.add("hidden");
+      __qtActions.classList.add("hidden");
+      __origShowCurrent.call(this, reset);
+    }
+  };
+</script>
+
+</body>
+</html>

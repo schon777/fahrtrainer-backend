@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Kalender</title>
+<style>
+  body{font-family:sans-serif;margin:0}
+  header{border-bottom:1px solid #ccc;padding:8px}
+  nav a{margin-right:8px}
+  main{padding:12px;display:flex;flex-direction:column;gap:12px;max-width:980px;margin:0 auto}
+  #calendar{width:100%}
+  #calendar header{display:flex;justify-content:space-between;align-items:center;margin:8px 0}
+  table{width:100%;border-collapse:collapse}
+  th,td{border:1px solid #ddd;padding:10px;text-align:center}
+  td.day{cursor:pointer}
+  td.markiert{outline:2px solid #000; outline-offset:-2px; border-radius:8px}
+  td.has-event{background:rgba(37,99,235,.06)}
+  .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .muted{color:#555}
+  .error{color:#b91c1c}
+  .right{text-align:right}
+  button{background:transparent;border:1px solid #ccc;padding:6px 10px;cursor:pointer}
+  .btn-danger{border-color:#b91c1c;color:#b91c1c}
+  .list-table td{cursor:default;text-align:left}
+  .list-table td.time{width:120px;text-align:center}
+  .actions button{margin:0 2px}
+  @media (max-width: 640px){
+    main{ padding:10px }
+    nav a{ display:inline-block; padding:10px 12px }
+    button{ padding:10px 12px; min-height:44px }
+    table{ display:block; overflow-x:auto; -webkit-overflow-scrolling:touch }
+    thead th, tbody td{ white-space:nowrap }
+    th, td{ padding:10px 6px }
+    td.day{ min-width:36px; min-height:44px }
+  }
+</style>
+</head>
+<body>
+<header>
+  <nav>
+    <a href="main.html">Main</a>
+    <a href="kalender.html" aria-current="page">Kalender</a>
+    <a href="fahrschulfragen.html">Fahrschulfragen</a>
+    <a href="trainer.html">Trainer</a>
+  </nav>
+</header>
+
+<main>
+  <!-- Monatsgitter -->
+  <div id="calendar">
+    <header>
+      <button id="prev">&laquo; Vorheriger</button>
+      <div id="title"></div>
+      <button id="next">Nächster &raquo;</button>
+    </header>
+    <table aria-label="Monatskalender">
+      <thead><tr><th>Mo</th><th>Di</th><th>Mi</th><th>Do</th><th>Fr</th><th>Sa</th><th>So</th></tr></thead>
+      <tbody id="grid"></tbody>
+    </table>
+  </div>
+
+  <!-- Toolbar + Info -->
+  <div class="row" style="justify-content:space-between;align-items:center">
+    <div class="row">
+      <div id="ausgewaehlt-info" class="muted"></div>
+      <button id="btn-neu">Termin erstellen</button>
+      <button id="btn-reload">Neu laden</button>
+    </div>
+    <div id="msg" class="error" hidden></div>
+  </div>
+
+  <!-- Tagesliste -->
+  <div id="termine-liste"></div>
+
+  <!-- Formular -->
+  <div id="formular" hidden>
+    <h3 id="form-title">Neuer Termin</h3>
+    <form id="termin-form">
+      <input type="hidden" id="f-id">  <!-- DB id -->
+      <input type="hidden" id="f-key"> <!-- KV key -->
+      <div class="row">
+        <label>Start <input type="date" id="f-date-start" required></label>
+        <label>Ende <input type="date" id="f-date-end" required></label>
+        <label>Uhrzeit <input type="time" id="f-zeit" required></label>
+        <label>Titel <input type="text" id="f-titel" required></label>
+      </div>
+      <div class="row" style="align-items:flex-start">
+        <label style="flex:1">Notiz
+          <input type="text" id="f-notiz" placeholder="Optional">
+        </label>
+        <span id="form-error" class="error" hidden></span>
+      </div>
+      <div class="row" style="justify-content:space-between">
+        <div class="row">
+          <button type="submit" id="btn-save">Speichern</button>
+          <button type="button" id="btn-abbrechen">Abbrechen</button>
+        </div>
+        <button type="button" id="btn-delete" class="btn-danger" hidden>Termin löschen</button>
+      </div>
+    </form>
+  </div>
+</main>
+
+<!-- Backend-Client -->
+<script src="kv.js"></script>
+<script>
+  // ======== Grundeinstellungen ========
+  const PAGE = "kalender"; // Namespace in deiner /api/kv
+  const $ = s => document.querySelector(s);
+  const esc = s => String(s??"").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const pad = n => String(n).padStart(2,'0');
+  const fmt = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  const uid = () => "event-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+
+  // ======== View-State ========
+  const gridEl = $("#grid"), titleEl = $("#title"), infoEl = $("#ausgewaehlt-info"), listEl = $("#termine-liste");
+  const today = new Date();
+  let viewYear = today.getFullYear(), viewMonth = today.getMonth(), selectedDay = today.getDate();
+
+  // Daten aus Backend
+  /** @type {Array<{id:number,k:string,date:string,time?:string,title?:string,note?:string}>} */
+  let EVENTS = [];
+
+  // ======== Laden/Speichern (Backend) ========
+  async function fetchEvents(){
+    const items = await KV.list(PAGE); // -> [{id,k,v:{date,time,title,note}}, ...]
+    EVENTS = (items || []).map(x => ({ id:x.id, k:x.k, ...(x.v||{}) }));
+  }
+  async function createEvent(date, time, title, note){
+    const key = uid();
+    const payload = { date, time, title, note };
+    const res = await KV.set(PAGE, key, payload);
+    return res;
+  }
+  async function updateEvent(id, key, payload){
+    // KV.set ist ein UPSERT nach key — wir nutzen denselben key, damit der Datensatz überschrieben wird.
+    await KV.set(PAGE, key, payload);
+  }
+  async function removeEvent(id){
+    await KV.remove(id);
+  }
+
+  // ======== Kalender-Rendering ========
+  const daysInMonth = (y,m)=> new Date(y, m+1, 0).getDate();
+  const weekdayMonFirst = js => (js+6)%7;
+
+  function renderCalendar(){
+    const months = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
+    titleEl.textContent = `${months[viewMonth]} ${viewYear}`;
+    gridEl.innerHTML = "";
+
+    const first = new Date(viewYear, viewMonth, 1);
+    const startW = weekdayMonFirst(first.getDay());
+    const dim = daysInMonth(viewYear, viewMonth);
+    let day=1;
+
+    for(let r=0;r<6;r++){
+      const tr = document.createElement("tr");
+      for(let c=0;c<7;c++){
+        const td = document.createElement("td"); td.className = "day";
+        const idx = r*7+c;
+        if(idx>=startW && day<=dim){
+          const curr = day;
+          const dStr = `${viewYear}-${pad(viewMonth+1)}-${pad(curr)}`;
+          td.textContent = curr;
+          // Markierungen
+          const isSel   = (curr===selectedDay);
+          const hasEv   = EVENTS.some(ev => ev.date===dStr);
+          if(isSel) td.classList.add("markiert");
+          if(hasEv) td.classList.add("has-event");
+          td.onclick = () => { selectedDay = curr; renderCalendar(); renderDayList(); };
+          day++;
+        } else {
+          td.textContent = "";
+          td.className = "";
+        }
+        tr.appendChild(td);
+      }
+      gridEl.appendChild(tr);
+      if(day>dim) break;
+    }
+  }
+
+  // ======== Tagesliste ========
+  function selectedDateStr(){ return `${viewYear}-${pad(viewMonth+1)}-${pad(selectedDay)}`; }
+
+  function renderDayList(){
+    const sel = selectedDateStr();
+    infoEl.textContent = `Ausgewählter Tag: ${sel}`;
+    const items = EVENTS
+      .filter(ev => ev.date===sel)
+      .sort((a,b)=> (a.time||"").localeCompare(b.time||""));
+
+    listEl.innerHTML = "";
+    if(items.length===0){
+      listEl.innerHTML = `<p class="muted">Keine Termine.</p>`;
+      return;
+    }
+
+    const t = document.createElement("table");
+    t.className = "list-table";
+    t.innerHTML = `<thead><tr><th class="time">Uhrzeit</th><th>Titel</th><th>Aktionen</th></tr></thead><tbody></tbody>`;
+    const tb = t.querySelector("tbody");
+
+    items.forEach(ev=>{
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td class="time">${esc(ev.time||"--:--")}</td>
+        <td>${esc(ev.title||"")}${ev.note? " — "+esc(ev.note) : ""}</td>
+        <td class="actions">
+          <button data-edit>Bearbeiten</button>
+          <button data-del class="btn-danger">Löschen</button>
+        </td>`;
+      tr.querySelector("[data-edit]").onclick = ()=> openEdit(ev);
+      tr.querySelector("[data-del]").onclick  = async ()=>{
+        if(!confirm("Diesen Termin löschen?")) return;
+        try { await removeEvent(ev.id); await reloadAll(); } 
+        catch(e){ showError(e?.message || "Löschen fehlgeschlagen."); }
+      };
+      tb.appendChild(tr);
+    });
+
+    listEl.appendChild(t);
+  }
+
+  // ======== Formular ========
+  const formWrap = $("#formular");
+  const formTitle = $("#form-title");
+  const fId   = $("#f-id");
+  const fKey  = $("#f-key");
+  const fS    = $("#f-date-start");
+  const fE    = $("#f-date-end");
+  const fTime = $("#f-zeit");
+  const fTit  = $("#f-titel");
+  const fNote = $("#f-notiz");
+  const fErr  = $("#form-error");
+  const btnDel= $("#btn-delete");
+
+  $("#btn-neu").onclick = ()=> openCreate();
+  $("#btn-abbrechen").onclick = ()=> { formWrap.hidden=true; };
+
+  function openCreate(){
+    const sel = selectedDateStr();
+    formTitle.textContent = "Neuer Termin";
+    fId.value=""; fKey.value="";
+    fS.value = sel; fE.value = sel;
+    fTime.value="09:00"; fTit.value=""; fNote.value="";
+    fErr.hidden = true; fErr.textContent="";
+    btnDel.hidden = true;
+    formWrap.hidden=false;
+  }
+  function openEdit(ev){
+    formTitle.textContent = "Termin bearbeiten";
+    fId.value = ev.id; fKey.value = ev.k || ev.key || "";
+    fS.value  = ev.date; fE.value = ev.date;
+    fTime.value = ev.time || "09:00";
+    fTit.value  = ev.title || "";
+    fNote.value = ev.note  || "";
+    fErr.hidden=true; fErr.textContent="";
+    btnDel.hidden=false;
+    formWrap.hidden=false;
+  }
+
+  $("#btn-delete").onclick = async ()=>{
+    const id = Number(fId.value);
+    if(id && confirm("Termin wirklich löschen?")){
+      try{ await removeEvent(id); formWrap.hidden=true; await reloadAll(); }
+      catch(e){ showError(e?.message || "Löschen fehlgeschlagen."); }
+    }
+  };
+
+  $("#termin-form").onsubmit = async (e)=>{
+    e.preventDefault();
+    fErr.hidden=true; fErr.textContent="";
+    const s = fS.value, eD = fE.value, t = fTime.value, ti = fTit.value.trim(), n = fNote.value.trim();
+    if(!s || !eD || !ti){ fErr.textContent="Bitte Start/Ende und Titel angeben."; fErr.hidden=false; return; }
+    try{
+      if(fId.value){ // UPDATE eines einzelnen Events
+        const payload = { date: s, time: t, title: ti, note: n };
+        await updateEvent(Number(fId.value), fKey.value || uid(), payload);
+      }else{ // CREATE – ggf. Mehrtages-Range
+        const ds = new Date(s+"T00:00:00"), de = new Date(eD+"T00:00:00");
+        if(de < ds){ fErr.textContent="Ende darf nicht vor Start liegen."; fErr.hidden=false; return; }
+        // nacheinander anlegen
+        for(let d=new Date(ds); d<=de; d.setDate(d.getDate()+1)){
+          const date = fmt(d);
+          await createEvent(date, t, ti, n);
+        }
+      }
+      formWrap.hidden=true;
+      await reloadAll();
+    }catch(err){
+      fErr.textContent = err?.message || "Speichern fehlgeschlagen.";
+      fErr.hidden=false;
+    }
+  };
+
+  // ======== Hilfen ========
+  function showError(text){ const el=$("#msg"); if(!text){ el.hidden=true; el.textContent=""; } else { el.hidden=false; el.textContent=text; } }
+
+  async function reloadAll(){
+    showError("");
+    try{
+      await fetchEvents();
+      renderCalendar();
+      renderDayList();
+    }catch(e){
+      showError(e?.message || "Daten konnten nicht geladen werden.");
+    }
+  }
+
+  // Navigation
+  $("#prev").onclick = ()=>{ viewMonth--; if(viewMonth<0){viewMonth=11; viewYear--;} selectedDay=1; renderCalendar(); renderDayList(); };
+  $("#next").onclick = ()=>{ viewMonth++; if(viewMonth>11){viewMonth=0; viewYear++; } selectedDay=1; renderCalendar(); renderDayList(); };
+  $("#btn-reload").onclick = reloadAll;
+
+  // ======== Init ========
+  (async ()=>{ await reloadAll(); })();
+</script>
+</body>
+</html>

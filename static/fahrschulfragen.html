@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Fahrschulfragen</title>
+<style>
+  body{font-family:sans-serif;margin:0}
+  header{border-bottom:1px solid #ccc;padding:8px}
+  nav a{margin-right:8px}
+  main{padding:12px;display:flex;flex-direction:column;gap:12px}
+  table{width:100%;border-collapse:collapse}
+  th,td{border:1px solid #ccc;padding:6px;text-align:left}
+  thead th{background:#f6f6f6}
+  .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .muted{color:#555}
+  .error{color:#b91c1c}
+  .success{color:#166534}
+  .seg{border:1px solid #ccc; padding:8px;}
+  .mode-switch label{margin-right:12px;cursor:pointer}
+  textarea{width:100%;min-height:160px;padding:6px;border:1px solid #ccc;font-family:inherit}
+  input[type="text"]{padding:6px;border:1px solid #ccc}
+  select{padding:6px;border:1px solid #ccc}
+  .bar{display:flex;justify-content:space-between;align-items:center}
+  .toggle-btn, .ghost, button{background:transparent;border:1px solid #ccc;padding:6px 10px;cursor:pointer}
+  .hidden{display:none}
+
+  /* ===== Mobile-Optimierung (≤ 640px) ===== */
+@media (max-width: 640px){
+  /* Layout & Abstände */
+  main{ padding:10px }
+  .row{ flex-direction:column; align-items:stretch; gap:10px }
+  .bar{ flex-direction:column; align-items:stretch; gap:8px }
+
+  /* Navigation & Buttons: bessere Touch-Ziele */
+  nav a{ display:inline-block; padding:10px 12px }
+  button{ padding:10px 12px; min-height:44px } /* mind. Apple/Google-Empfehlung */
+
+  /* Formulare: Inputs auf volle Breite */
+  input[type="text"],
+  input[type="date"],
+  input[type="time"],
+  select,
+  textarea{ width:100% }
+
+  /* Tabellen: horizontal scrollen statt umbrechen */
+  table{ display:block; overflow-x:auto; -webkit-overflow-scrolling:touch }
+  thead th, tbody td{ white-space:nowrap }
+
+  /* Kalender: volle Breite & größere Zellen für Touch */
+  #calendar{ width:100% }
+  th, td{ padding:10px 6px }
+  td{ min-width:36px; min-height:44px }  /* besser antippbar */
+  td.markiert{ border-width:2px; border-radius:8px } /* runde Markierung auch auf kleinen Zellen */
+
+  /* Trainer: Optionen schön einspaltig */
+  .choices{ display:grid; grid-template-columns:1fr; gap:8px }
+  .letters{ gap:8px }
+  .slot, .letter{ min-width:36px; padding:8px } /* bessere Trefferfläche */
+
+  /* Fragen-/Kurs-Tabellen: Aktionen umbrechen */
+  .actions button{ margin:4px 2px }
+}
+
+</style>
+</head>
+<body>
+<header>
+  <nav>
+    <a href="main.html">Main</a>
+    <a href="kalender.html">Kalender</a>
+    <a href="fahrschulfragen.html" aria-current="page">Fahrschulfragen</a>
+  </nav>
+</header>
+
+<main>
+  <!-- ===== KURSE ===== -->
+  <div id="kurse-block">
+    <div class="bar">
+      <h2 style="margin:0">Kurse</h2>
+      <div class="row">
+        <button id="export-all" class="ghost">Daten exportieren</button>
+        <button id="kurs-add">Kurs hinzufügen</button>
+        <button id="kurs-abbrechen" title="Auswahl zurücksetzen">Abbrechen</button>
+        <button id="kurse-toggle" class="toggle-btn" aria-expanded="true">▼ einklappen</button>
+      </div>
+    </div>
+    <div id="kurse-content">
+      <div class="row" id="kurs-form-wrap" hidden>
+        <label>Kursname <input type="text" id="kurs-name"></label>
+        <button id="kurs-save">Speichern</button>
+        <button id="kurs-cancel">Abbrechen</button>
+      </div>
+      <table id="kurse-table" style="margin-top:8px;">
+        <thead><tr><th>Kurs</th><th>#Themen</th><th>Fragen</th><th>Aktionen</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ===== THEMEN ===== -->
+  <div id="themen-block" hidden>
+    <div class="bar" style="margin-top:8px;">
+      <h3 style="margin:0">Themen – <span id="themen-kursname" class="muted"></span></h3>
+      <div class="row">
+        <button id="thema-add">Thema hinzufügen</button>
+        <button id="thema-abbrechen" title="Thema-Auswahl zurücksetzen">Abbrechen</button>
+        <button id="themen-toggle" class="toggle-btn" aria-expanded="true">▼ einklappen</button>
+      </div>
+    </div>
+    <div id="themen-content">
+      <div class="row" id="thema-form-wrap" hidden>
+        <label>Thema <input type="text" id="thema-name"></label>
+        <button id="thema-save">Speichern</button>
+        <button id="thema-cancel">Abbrechen</button>
+      </div>
+      <table id="themen-table" style="margin-top:8px;">
+        <thead><tr><th>Thema</th><th>#Fragen</th><th>Aktionen</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ===== FRAGEN ===== -->
+  <div id="fragen-block" hidden>
+    <div class="bar" style="margin-top:8px;">
+      <h3 style="margin:0">Fahrschulfragen – <span id="fragen-thema" class="muted"></span></h3>
+      <div class="row">
+        <button id="frage-add">Frage hinzufügen</button>
+        <button id="fragen-abbrechen" title="Fragen-Bereich ausblenden">Abbrechen</button>
+        <button id="fragen-toggle" class="toggle-btn" aria-expanded="true">▼ einklappen</button>
+      </div>
+    </div>
+    <div id="fragen-content">
+      <div id="frage-add-wrap" class="seg" hidden>
+        <div class="row">
+          <label>Kurs <select id="sel-course"></select></label>
+          <label>Thema <select id="sel-topic"></select></label>
+          <span id="ctx-msg" class="muted"></span>
+        </div>
+
+        <div class="mode-switch row" style="margin-top:6px;">
+          <label><input type="radio" name="frage-mode" value="manual" checked> Manuell</label>
+          <label><input type="radio" name="frage-mode" value="bulk"> Text-Import</label>
+        </div>
+
+        <!-- Manuell -->
+        <div id="frage-form-wrap" class="row" style="margin-top:8px;">
+          <label>Frage <input type="text" id="frage-text" style="width:24em"></label>
+          <label>Antwort <input type="text" id="frage-antwort" style="width:24em"></label>
+          <button id="frage-save">Speichern</button>
+          <button id="frage-cancel">Abbrechen</button>
+        </div>
+
+        <!-- Text-Import -->
+        <div id="frage-import-wrap" class="hidden" style="margin-top:8px;">
+<textarea id="bulk-text" placeholder="Format:
+Frage: ...
+Antwort: ...
+
+Beispiel:
+Frage: Was ist VLAN?
+Antwort: Virtuelles lokales Netzwerk zur Segmentierung."></textarea>
+          <div class="row" style="margin-top:6px;">
+            <button id="bulk-parse">Importieren</button>
+            <button id="bulk-cancel">Abbrechen</button>
+            <span id="bulk-msg" class="muted"></span>
+          </div>
+        </div>
+      </div>
+
+      <table id="fragen-table" style="margin-top:8px;">
+        <thead><tr><th>Frage</th><th>Antwort</th><th>Aktionen</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script src="kv.js"></script>
+<script>
+  // ======= KV Namespaces & Utils =======
+  const PAGE_KURSE  = "kurse";
+  const PAGE_THEMEN = "themen";
+  const PAGE_FRAGEN = "fragen";
+
+  const $ = s => document.querySelector(s);
+  const escapeHtml=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const uid = (p="id") => `${p}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+
+  // State
+  let selectedCourseKid=null, selectedTopicKid=null;
+
+  // ======= Daten laden =======
+  async function listKurse(){   return (await KV.list(PAGE_KURSE)).map(x=>({ dbid:x.id, ...x.v })); }
+  async function listThemen(){  return (await KV.list(PAGE_THEMEN)).map(x=>({ dbid:x.id, ...x.v })); }
+  async function listFragen(){  return (await KV.list(PAGE_FRAGEN)).map(x=>({ dbid:x.id, ...x.v })); }
+
+  async function addKurs(name){
+    const kid = uid("kurs");
+    await KV.set(PAGE_KURSE, kid, { kid, name });
+  }
+  async function delKursByKid(kid, themen, fragen){
+    const ts = (themen||[]).filter(t=>t.courseKid===kid);
+    const fs = (fragen||[]).filter(f=>ts.some(t=>t.kid===f.topicKid));
+    for(const f of fs){ await KV.remove(f.dbid); }
+    for(const t of ts){ await KV.remove(t.dbid); }
+    const kurs = (await listKurse()).find(k=>k.kid===kid);
+    if(kurs) await KV.remove(kurs.dbid);
+  }
+
+  async function addThema(courseKid, name){
+    const kid = uid("thema");
+    await KV.set(PAGE_THEMEN, kid, { kid, courseKid, name });
+  }
+  async function delThemaByKid(kid, fragen){
+    const fs = (fragen||[]).filter(f=>f.topicKid===kid);
+    for(const f of fs){ await KV.remove(f.dbid); }
+    const th = (await listThemen()).find(t=>t.kid===kid);
+    if(th) await KV.remove(th.dbid);
+  }
+
+  // ======= NEU: v2-Objekt-Fragen speichern =======
+  async function addFrageObj(obj){
+    // erwartet: {type, stem|text, payload, explain?} + topicKid/courseKid werden hier ergänzt
+    const kid = uid("frage");
+    const full = {
+      kid,
+      topicKid: obj.topicKid,
+      courseKid: obj.courseKid,
+      type: obj.type,
+      stem: obj.stem || null,
+      text: obj.text || null,
+      payload: obj.payload || {},
+      explain: obj.explain || ""
+    };
+    await KV.set(PAGE_FRAGEN, kid, full);
+  }
+
+  // ======= Legacy: einfache QA-Frage (bleibt für Altbestand) =======
+  async function addFrage(topicKid, frage, antwort, courseKid){
+    const kid = uid("frage");
+    await KV.set(PAGE_FRAGEN, kid, { kid, topicKid, frage, antwort, courseKid });
+  }
+  async function delFrageByKid(kid){
+    const fr = (await listFragen()).find(f=>f.kid===kid);
+    if(fr) await KV.remove(fr.dbid);
+  }
+
+  // ======= UI Elemente =======
+  const kurseTableTBody  = document.querySelector('#kurse-table tbody');
+  const themenTableTBody = document.querySelector('#themen-table tbody');
+  const fragenTableTBody = document.querySelector('#fragen-table tbody');
+
+  const kursFormWrap  = $('#kurs-form-wrap');
+  const themaFormWrap = $('#thema-form-wrap');
+  const frageAddWrap  = $('#frage-add-wrap');
+
+  const themenBlock   = $('#themen-block');
+  const fragenBlock   = $('#fragen-block');
+  const themenKursname= $('#themen-kursname');
+  const fragenThema   = $('#fragen-thema');
+
+  const selCourse = $('#sel-course');
+  const selTopic  = $('#sel-topic');
+  const ctxMsg    = $('#ctx-msg');
+  const bulkText  = $('#bulk-text');
+  const bulkMsg   = $('#bulk-msg');
+
+  // ======= Render Helpers =======
+  async function renderCourses(){
+    const [kurse,themen,fragen] = await Promise.all([listKurse(), listThemen(), listFragen()]);
+    kurseTableTBody.innerHTML = "";
+    if(kurse.length===0){
+      kurseTableTBody.innerHTML = `<tr><td colspan="4" class="muted">Noch keine Kurse.</td></tr>`;
+      return;
+    }
+    for(const k of kurse){
+      const kThemen = themen.filter(t=>t.courseKid===k.kid);
+      const kFragen = fragen.filter(f=>kThemen.some(t=>t.kid===f.topicKid));
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${escapeHtml(k.name)}</td>
+        <td>${kThemen.length}</td>
+        <td>${kFragen.length}</td>
+        <td>
+          <button data-sel>Auswählen</button>
+          <button data-del>Löschen</button>
+        </td>`;
+      tr.querySelector('[data-sel]').onclick = ()=>{
+        selectedCourseKid = k.kid;
+        themenBlock.hidden=false;
+        fragenBlock.hidden=true;
+        selectedTopicKid=null;
+        themenKursname.textContent=k.name;
+        renderTopics();
+        refreshSelectors();
+      };
+      tr.querySelector('[data-del]').onclick = async ()=>{
+        if(!confirm("Kurs löschen?")) return;
+        await delKursByKid(k.kid, themen, fragen);
+        selectedCourseKid=null; selectedTopicKid=null;
+        themenBlock.hidden=true; fragenBlock.hidden=true;
+        await renderCourses();
+      };
+      kurseTableTBody.appendChild(tr);
+    }
+  }
+
+  async function renderTopics(){
+    const [themen,fragen] = await Promise.all([listThemen(), listFragen()]);
+    const ts = themen.filter(t=>t.courseKid===selectedCourseKid);
+    themenTableTBody.innerHTML = "";
+    for(const t of ts){
+      const tFragen = fragen.filter(f=>f.topicKid===t.kid);
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${escapeHtml(t.name)}</td>
+        <td>${tFragen.length}</td>
+        <td>
+          <button data-sel>Auswählen</button>
+          <button data-del>Löschen</button>
+        </td>`;
+      tr.querySelector('[data-sel]').onclick = ()=>{
+        selectedTopicKid = t.kid;
+        fragenBlock.hidden=false;
+        fragenThema.textContent=t.name;
+        renderQuestions();
+        refreshSelectors();
+      };
+      tr.querySelector('[data-del]').onclick = async ()=>{
+        if(!confirm("Thema löschen?")) return;
+        await delThemaByKid(t.kid, fragen);
+        selectedTopicKid=null;
+        fragenBlock.hidden=true;
+        await renderTopics();
+      };
+      themenTableTBody.appendChild(tr);
+    }
+  }
+
+  async function renderQuestions(){
+    const qs = (await listFragen()).filter(f=>f.topicKid===selectedTopicKid);
+    fragenTableTBody.innerHTML = "";
+    for(const q of qs){
+      const title = q.frage || q.stem || q.text || "";
+      const answerPreview = q.antwort ? q.antwort
+        : (q.type ? "[typisierte Frage]" : "");
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${escapeHtml(title)} ${q.type ? `<div class="muted" style="font-size:12px">Typ: ${escapeHtml(q.type)}</div>` : ""}</td>
+        <td>${escapeHtml(answerPreview)}</td>
+        <td><button data-del>Löschen</button></td>`;
+      tr.querySelector('[data-del]').onclick = async ()=>{
+        if(!confirm("Frage löschen?")) return;
+        await delFrageByKid(q.kid);
+        await renderQuestions();
+        await renderCourses();
+      };
+      fragenTableTBody.appendChild(tr);
+    }
+  }
+
+  // ======= Selektoren =======
+  async function refreshSelectors(){
+    const kurse = await listKurse();
+    selCourse.innerHTML = "";
+    if(kurse.length===0){ selCourse.innerHTML="<option value=''>-- kein Kurs --</option>"; }
+    for(const k of kurse){
+      const o=document.createElement('option'); o.value=k.kid; o.textContent=k.name; selCourse.appendChild(o);
+    }
+    if(selectedCourseKid){ selCourse.value=selectedCourseKid; }
+
+    const themen = (await listThemen()).filter(t=>t.courseKid===selCourse.value);
+    selTopic.innerHTML = "";
+    if(themen.length===0){ selTopic.innerHTML="<option value=''>-- kein Thema --</option>"; }
+    for(const t of themen){
+      const o=document.createElement('option'); o.value=t.kid; o.textContent=t.name; selTopic.appendChild(o);
+    }
+    if(selectedTopicKid){ selTopic.value=selectedTopicKid; }
+    updateCtxMsg();
+  }
+  selCourse.addEventListener('change', async ()=>{
+    selectedCourseKid = selCourse.value || null;
+    selectedTopicKid = null;
+    await refreshSelectors();
+  });
+  selTopic.addEventListener('change', ()=>{
+    selectedTopicKid = selTopic.value || null;
+    updateCtxMsg();
+  });
+  function updateCtxMsg(ok=false){
+    const cn = selCourse.options[selCourse.selectedIndex]?.textContent || "";
+    const tn = selTopic.options[selTopic.selectedIndex]?.textContent || "";
+    ctxMsg.textContent = (selectedCourseKid && selectedTopicKid)
+      ? `Ziel: ${cn} → ${tn}` + (ok? " ✔ gespeichert":"")
+      : "Bitte Kurs und Thema wählen.";
+  }
+
+  // ======= Buttons & Form-Logik (wie gehabt, gekürzt) =======
+  $('#kurs-add').onclick = ()=>{ kursFormWrap.hidden=false; $('#kurs-name').value=""; };
+  $('#kurs-cancel').onclick = ()=>{ kursFormWrap.hidden=true; };
+  $('#kurs-save').onclick = async ()=>{
+    const name = $('#kurs-name').value.trim(); if(!name) return;
+    await addKurs(name);
+    kursFormWrap.hidden=true;
+    await renderCourses();
+    await refreshSelectors();
+  };
+
+  $('#thema-add').onclick = ()=>{
+    if(!selectedCourseKid){ alert("Bitte zuerst einen Kurs auswählen."); return; }
+    themaFormWrap.hidden=false; $('#thema-name').value="";
+  };
+  $('#thema-cancel').onclick = ()=>{ themaFormWrap.hidden=true; };
+  $('#thema-save').onclick = async ()=>{
+    const name = $('#thema-name').value.trim(); if(!name) return;
+    await addThema(selectedCourseKid, name);
+    themaFormWrap.hidden=true;
+    await renderTopics();
+    await refreshSelectors();
+  };
+
+  // ======= Fragen – manuell (Legacy) =======
+  $('#frage-add').onclick = ()=>{
+    if(!selectedCourseKid){ alert("Bitte zuerst einen Kurs auswählen."); return; }
+    if(!selectedTopicKid){ alert("Bitte zuerst ein Thema auswählen."); return; }
+    frageAddWrap.hidden=false;
+    refreshSelectors();
+    updateCtxMsg();
+  };
+  $('#frage-cancel').onclick = ()=>{ frageAddWrap.hidden=true; };
+  $('#frage-save').onclick = async ()=>{
+    if(!selectedCourseKid || !selectedTopicKid){ alert("Bitte Kurs/Thema wählen."); return; }
+    const frage = $('#frage-text').value.trim();
+    const antwort = $('#frage-antwort').value.trim();
+    if(!frage){ alert("Frage darf nicht leer sein."); return; }
+    await addFrage(selectedTopicKid, frage, antwort, selectedCourseKid);
+    $('#frage-text').value=""; $('#frage-antwort').value="";
+    await renderQuestions(); await renderCourses(); updateCtxMsg(true);
+  };
+
+  // ======= Fragen – BULK: jetzt mit JSONL v2 + Fallback =======
+  const modeRadios=document.querySelectorAll('input[name="frage-mode"]');
+  const formWrap = $('#frage-form-wrap');
+  const importWrap = $('#frage-import-wrap');
+  function getMode(){ return Array.from(modeRadios).find(r=>r.checked)?.value || 'manual'; }
+  modeRadios.forEach(r=>{
+    r.addEventListener('change', ()=>{
+      const mode=getMode();
+      if(mode==='manual'){ formWrap.classList.remove('hidden'); importWrap.classList.add('hidden'); }
+      else{ formWrap.classList.add('hidden'); importWrap.classList.remove('hidden'); }
+      bulkMsg.textContent=""; bulkMsg.className='muted';
+    });
+  });
+
+  $('#bulk-cancel').onclick = ()=>{
+    bulkText.value=""; bulkMsg.textContent=""; frageAddWrap.hidden=true;
+  };
+
+  $('#bulk-parse').onclick = async ()=>{
+    if(!selectedCourseKid || !selectedTopicKid){ alert("Bitte Kurs/Thema wählen."); return; }
+    const txt = (bulkText.value || "").trim();
+    if(!txt){ bulkMsg.textContent="Kein Text."; bulkMsg.className='error'; return; }
+
+    const firstNonEmpty = (txt.split(/\r?\n/).find(l=>l.trim().length>0) || "").trim();
+    const isJSONL = firstNonEmpty.startsWith("{");
+
+    let added = 0;
+
+    if(isJSONL){
+      const lines = txt.split(/\r?\n/).map(l=>l.trim()).filter(l=>l && !l.startsWith("//") && !l.startsWith("#"));
+      const errors=[];
+      for(let i=0;i<lines.length;i++){
+        try{
+          const obj = JSON.parse(lines[i]);
+          if(!obj || !obj.type) { throw new Error("type fehlt"); }
+          obj.topicKid = selectedTopicKid;
+          obj.courseKid = selectedCourseKid;
+          await addFrageObj(obj);
+          added++;
+        }catch(e){
+          errors.push(`Zeile ${i+1}: ${e.message}`);
+        }
+      }
+      if(errors.length){ console.warn("Import-Warnungen:", errors.join("\n")); }
+      bulkMsg.textContent = `Import (v2/JSONL) OK: ${added} Frage(n).`;
+      bulkMsg.className='success';
+    } else {
+      // ======= Fallback: altes Format "Frage:/Antwort:" =======
+      const lines = txt.split(/\r?\n/);
+      const items=[]; let currQ=null, currA=null;
+      const flush=()=>{ if(currQ && (currA!==null)) items.push({frage:currQ.trim(), antwort:(currA||"").trim()}); currQ=null; currA=null; };
+      for(const raw of lines){
+        const line=raw.trim();
+        if(line.toLowerCase().startsWith("frage:")){ flush(); currQ=line.slice(6).trim(); }
+        else if(line.toLowerCase().startsWith("antwort:")){ currA=line.slice(8).trim(); }
+        else if(line===""){ flush(); }
+        else{ if(currA!==null && currQ){ currA += (currA? "\n":"") + line; } else if(currQ){ currQ += (currQ? " ":"") + line; } }
+      }
+      flush();
+      const ready = items.filter(x=>x.frage);
+      for(const it of ready){
+        await addFrage(selectedTopicKid, it.frage, it.antwort||"", selectedCourseKid);
+        added++;
+      }
+      bulkMsg.textContent = `Import (Legacy) OK: ${added} Frage(n).`;
+      bulkMsg.className='success';
+    }
+
+    await renderQuestions(); await renderCourses();
+  };
+
+  // ======= Migration (wie gehabt; optional) =======
+  async function migrateIfNeeded(){
+    const [k1,t1,f1] = await Promise.all([listKurse(),listThemen(),listFragen()]);
+    if(k1.length || t1.length || f1.length) return;
+    try{
+      const ls = k => { try{ return JSON.parse(localStorage.getItem(k)) || []; } catch { return []; } };
+      const LS_KURSE  = ls("kurse-v1");
+      const LS_THEMEN = ls("themen-v1");
+      const LS_FRAGEN = ls("fragen-v1");
+      if(!(LS_KURSE.length || LS_THEMEN.length || LS_FRAGEN.length)) return;
+      const kursKid = new Map(), themaKid= new Map();
+
+      for(const k of LS_KURSE){ const kid=uid("kurs"); kursKid.set(k.id,kid); await KV.set(PAGE_KURSE, kid, { kid, name:k.name }); }
+      for(const t of LS_THEMEN){ const kid=uid("thema"); themaKid.set(t.id,kid); await KV.set(PAGE_THEMEN, kid, { kid, courseKid:kursKid.get(t.courseId), name:t.name }); }
+      for(const f of LS_FRAGEN){ const kid=uid("frage"); await KV.set(PAGE_FRAGEN, kid, { kid, topicKid: themaKid.get(f.topicId), frage: f.frage||"", antwort: f.antwort||"", courseKid: kursKid.get(f.courseId)||null }); }
+    }catch(e){ console.warn("Migration übersprungen:", e); }
+  }
+
+  // ======= Init =======
+  function toggle(btn,content){
+    const exp=btn.getAttribute('aria-expanded')==="true";
+    btn.setAttribute('aria-expanded',!exp);
+    btn.textContent=!exp?"▼ einklappen":"▶ ausklappen";
+    content.hidden=exp;
+  }
+  $('#kurse-toggle').onclick = ()=>toggle($('#kurse-toggle'), $('#kurse-content'));
+  $('#themen-toggle').onclick = ()=>toggle($('#themen-toggle'), $('#themen-content'));
+  $('#fragen-toggle').onclick = ()=>toggle($('#fragen-toggle'), $('#fragen-content'));
+
+  (async function init(){
+    await migrateIfNeeded();
+    await renderCourses();
+    $('#fragen-abbrechen').onclick = ()=>{ fragenBlock.hidden=true; frageAddWrap.hidden=true; };
+  })();
+</script>
+
+
+</body>
+</html>
