@@ -1,1 +1,3 @@
-/   /main.html   200
+/             /main.html   302
+/index.html   /main.html   302
+/*            /main.html   200
