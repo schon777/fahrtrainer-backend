@@ -1,16 +1,32 @@
 # app.py — Flask + SQLAlchemy (Neon Postgres / Render)
-import os, json
+import os
 from datetime import datetime
 from flask import Flask, send_from_directory, jsonify, request
 from flask_cors import CORS
-
 from sqlalchemy import create_engine, text, Table, MetaData, Column, Integer, Text
 from sqlalchemy.dialects.postgresql import insert, JSONB
 
 # ---------- Flask ----------
 # static_url_path="/static", damit /api/* nicht mit Static kollidiert
 app = Flask(__name__, static_folder="static", static_url_path="/static")
-CORS(app, resources={r"/*": {"origins": os.getenv("ALLOWED_ORIGINS", "*").split(",")}})
+
+# ---------- CORS: nur erlaubte Frontends ----------
+ALLOWED_ORIGINS = [
+    "https://fahrtrainer-backend.pages.dev",  # Cloudflare Pages (Frontend)
+    "http://localhost:5500",                  # Lokaler Test (Live-Server o.ä.)
+    "http://127.0.0.1:5500",
+]
+# Optional: weitere Domains über Env-Var in Render nachrüstbar
+_extra = os.getenv("ALLOWED_ORIGINS", "").strip()
+if _extra:
+    ALLOWED_ORIGINS += [o for o in _extra.split(",") if o]
+
+CORS(
+    app,
+    resources={r"/api/*": {"origins": ALLOWED_ORIGINS}},
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+)
 
 # ---------- DB ----------
 db_url = os.getenv("DATABASE_URL", "")
@@ -183,7 +199,6 @@ def delete_fahrt(id):
     return ({"deleted": row[0]}, 200) if row else ({"error": "not found"}, 404)
 
 # ---------- KV-API (Key/Value) ----------
-# Format wie dein Frontend erwartet:
 # GET  /api/kv?page=kalender        -> { items: [ {id, k, v}, ... ] }
 # POST /api/kv {page,key,value}     -> { id, k, v }  (UPSERT)
 # DEL  /api/kv/<id>                 -> { deleted: id }
@@ -216,7 +231,6 @@ def kv_upsert():
     if not page or not key:
         return {"error": "page and key required"}, 400
 
-    # Dialekt-sicheres UPSERT inkl. JSONB-Handling
     with engine.begin() as conn:
         stmt = insert(kv_table).values(page=page, k=key, v=val)
         stmt = stmt.on_conflict_do_update(
@@ -237,7 +251,7 @@ def kv_delete(item_id: int):
         ), {"id": item_id}).first()
     return ({"deleted": row[0]}, 200) if row else ({"error": "not found"}, 404)
 
-# ---------- Static: Catch-All ----------
+# ---------- Static: Catch-All (nur falls du auch über Render statisch auslieferst) ----------
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve(path):
