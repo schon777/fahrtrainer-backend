@@ -1,5 +1,0 @@
-gunicorn
-Flask
-Flask-Cors
-SQLAlchemy>=1.4
-psycopg2-binary
