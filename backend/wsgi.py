@@ -1,4 +1,8 @@
-from app import app
+from app import app, init_db
 
-if __name__ == "__main__":
-    app.run()
+# DB beim dyno-start sicherstellen
+init_db()
+
+# für Gunicorn
+if __name__ != "__main__":
+    application = app
