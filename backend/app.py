@@ -143,3 +143,13 @@ def fahrten_delete(fid):
 if __name__ == "__main__":
     init_db()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
+# --- Health checks ---------------------------------------------
+@app.get("/api/ping")
+def ping():
+    return {"status": "ok"}, 200
+
+@app.get("/")
+def root_ok():
+    # Falls der Health Check mal auf / gestellt wird
+    return "OK", 200
