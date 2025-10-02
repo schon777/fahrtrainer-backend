@@ -1,18 +1,18 @@
-/*            # Default-Sicherheitsheader für alle Assets
+/*
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: same-origin
   Permissions-Policy: geolocation=(), microphone=(), camera=()
 
-/*.html       # HTML nicht cachen (damit Änderungen sofort live sind)
+/*.html
   Cache-Control: no-store
 
-/*.js        # Statische Bundles lange cachen (wenn Dateinamen gehasht sind)
+/*.js
   Cache-Control: public, max-age=31536000, immutable
 
 /*.css
   Cache-Control: public, max-age=31536000, immutable
 
-/img/*       # Bilder lang cachen
+/img/*
   Cache-Control: public, max-age=31536000, immutable
