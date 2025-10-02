@@ -1,3 +1,5 @@
-Flask==3.0.0
-Flask-Cors==4.0.0
-gunicorn==21.2.0
+Flask==3.0.3
+gunicorn==23.0.0
+SQLAlchemy==2.0.35
+psycopg2-binary==2.9.9    # nur nötig, wenn du eine Postgres-URL nutzt; bei SQLite ok, kann aber drin bleiben
+python-dotenv==1.0.1
